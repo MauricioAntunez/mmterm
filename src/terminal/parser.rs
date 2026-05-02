@@ -8,8 +8,16 @@ pub struct TerminalParser {
 
 impl TerminalParser {
     pub fn new(cols: usize, rows: usize) -> Self {
+        Self { grid: Grid::new(cols, rows), parser: Parser::new() }
+    }
+
+    pub fn new_with_colors(
+        cols: usize, rows: usize,
+        fg: Color, bg: Color, cursor: Color, selection: Color,
+        palette: [Color; 16],
+    ) -> Self {
         Self {
-            grid: Grid::new(cols, rows),
+            grid: Grid::with_colors(cols, rows, fg, bg, cursor, selection, palette),
             parser: Parser::new(),
         }
     }
@@ -84,8 +92,9 @@ impl Perform for Performer<'_> {
                     let col = self.grid.cursor_col;
                     let cols = self.grid.cols;
                     let rows = self.grid.rows;
+                    let blank = self.grid.blank_cell();
                     for c in col..cols {
-                        self.grid.cells[row * cols + c] = Default::default();
+                        self.grid.cells[row * cols + c] = blank.clone();
                     }
                     for r in (row + 1)..rows {
                         self.grid.clear_line(r);
@@ -95,8 +104,9 @@ impl Perform for Performer<'_> {
                     let row = self.grid.cursor_row;
                     let col = self.grid.cursor_col;
                     let cols = self.grid.cols;
+                    let blank = self.grid.blank_cell();
                     for c in 0..=col {
-                        self.grid.cells[row * cols + c] = Default::default();
+                        self.grid.cells[row * cols + c] = blank.clone();
                     }
                     for r in 0..row {
                         self.grid.clear_line(r);
@@ -110,15 +120,16 @@ impl Perform for Performer<'_> {
                 let row = self.grid.cursor_row;
                 let col = self.grid.cursor_col;
                 let cols = self.grid.cols;
+                let blank = self.grid.blank_cell();
                 match p0 {
                     0 => {
                         for c in col..cols {
-                            self.grid.cells[row * cols + c] = Default::default();
+                            self.grid.cells[row * cols + c] = blank.clone();
                         }
                     }
                     1 => {
                         for c in 0..=col {
-                            self.grid.cells[row * cols + c] = Default::default();
+                            self.grid.cells[row * cols + c] = blank.clone();
                         }
                     }
                     2 => self.grid.clear_line(row),
@@ -128,8 +139,8 @@ impl Perform for Performer<'_> {
             // SGR — Select Graphic Rendition
             'm' => {
                 if ps.is_empty() || (ps.len() == 1 && ps[0] == 0) {
-                    self.grid.fg = Color::WHITE;
-                    self.grid.bg = Color::BLACK;
+                    self.grid.fg = self.grid.default_fg;
+                    self.grid.bg = self.grid.default_bg;
                     self.grid.bold = false;
                     return;
                 }
@@ -137,28 +148,28 @@ impl Perform for Performer<'_> {
                 while i < ps.len() {
                     match ps[i] {
                         0 => {
-                            self.grid.fg = Color::WHITE;
-                            self.grid.bg = Color::BLACK;
+                            self.grid.fg = self.grid.default_fg;
+                            self.grid.bg = self.grid.default_bg;
                             self.grid.bold = false;
                         }
                         1 => self.grid.bold = true,
                         22 => self.grid.bold = false,
                         // Standard foreground colors 30-37
-                        n @ 30..=37 => self.grid.fg = ansi_color(n - 30, self.grid.bold),
-                        39 => self.grid.fg = Color::WHITE,
+                        n @ 30..=37 => self.grid.fg = self.grid.palette[(n - 30) as usize],
+                        39 => self.grid.fg = self.grid.default_fg,
                         // Standard background colors 40-47
-                        n @ 40..=47 => self.grid.bg = ansi_color(n - 40, false),
-                        49 => self.grid.bg = Color::BLACK,
+                        n @ 40..=47 => self.grid.bg = self.grid.palette[(n - 40) as usize],
+                        49 => self.grid.bg = self.grid.default_bg,
                         // Bright foreground 90-97
-                        n @ 90..=97 => self.grid.fg = ansi_color(n - 90, true),
+                        n @ 90..=97 => self.grid.fg = self.grid.palette[(n - 90 + 8) as usize],
                         // Bright background 100-107
-                        n @ 100..=107 => self.grid.bg = ansi_color(n - 100, true),
+                        n @ 100..=107 => self.grid.bg = self.grid.palette[(n - 100 + 8) as usize],
                         // 256-color and truecolor
                         38 => {
                             if i + 1 < ps.len() {
                                 match ps[i + 1] {
                                     5 if i + 2 < ps.len() => {
-                                        self.grid.fg = color256(ps[i + 2] as u8);
+                                        self.grid.fg = color256(ps[i + 2] as u8, &self.grid.palette);
                                         i += 2;
                                     }
                                     2 if i + 4 < ps.len() => {
@@ -177,7 +188,7 @@ impl Perform for Performer<'_> {
                             if i + 1 < ps.len() {
                                 match ps[i + 1] {
                                     5 if i + 2 < ps.len() => {
-                                        self.grid.bg = color256(ps[i + 2] as u8);
+                                        self.grid.bg = color256(ps[i + 2] as u8, &self.grid.palette);
                                         i += 2;
                                     }
                                     2 if i + 4 < ps.len() => {
@@ -233,31 +244,9 @@ impl Perform for Performer<'_> {
     }
 }
 
-fn ansi_color(index: u16, bright: bool) -> Color {
-    match (index, bright) {
-        (0, false) => Color::rgb(0x1e, 0x1e, 0x2e),
-        (0, true) => Color::rgb(0x58, 0x5b, 0x70),
-        (1, false) => Color::rgb(0xf3, 0x8b, 0xa8),
-        (1, true) => Color::rgb(0xf3, 0x8b, 0xa8),
-        (2, false) => Color::rgb(0xa6, 0xe3, 0xa1),
-        (2, true) => Color::rgb(0xa6, 0xe3, 0xa1),
-        (3, false) => Color::rgb(0xf9, 0xe2, 0xaf),
-        (3, true) => Color::rgb(0xf9, 0xe2, 0xaf),
-        (4, false) => Color::rgb(0x89, 0xb4, 0xfa),
-        (4, true) => Color::rgb(0x89, 0xb4, 0xfa),
-        (5, false) => Color::rgb(0xcb, 0xa6, 0xf7),
-        (5, true) => Color::rgb(0xcb, 0xa6, 0xf7),
-        (6, false) => Color::rgb(0x89, 0xdc, 0xeb),
-        (6, true) => Color::rgb(0x89, 0xdc, 0xeb),
-        (7, false) => Color::rgb(0xba, 0xc2, 0xde),
-        (7, true) => Color::rgb(0xd8, 0xd8, 0xd8),
-        _ => Color::WHITE,
-    }
-}
-
-fn color256(n: u8) -> Color {
+fn color256(n: u8, palette: &[Color; 16]) -> Color {
     if n < 16 {
-        return ansi_color(n as u16 % 8, n >= 8);
+        return palette[n as usize];
     }
     if n >= 232 {
         let v = 8 + (n - 232) * 10;

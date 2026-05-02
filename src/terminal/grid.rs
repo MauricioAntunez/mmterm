@@ -13,7 +13,9 @@ impl Color {
     }
     pub const WHITE: Self = Self::rgb(0xd8, 0xd8, 0xd8);
     pub const BLACK: Self = Self::rgb(0x1e, 0x1e, 0x2e);
+    #[allow(dead_code)]
     pub const CURSOR: Self = Self::rgb(0xcb, 0xa6, 0xf7);
+    #[allow(dead_code)]
     pub const SELECTION: Self = Self::rgb(0x45, 0x47, 0x5a);
 }
 
@@ -45,27 +47,52 @@ pub struct Grid {
     pub bold: bool,
     // Scrollback: lines that have scrolled off the top (oldest first)
     pub scrollback: Vec<Vec<Cell>>,
+    // Theme colors
+    pub default_fg: Color,
+    pub default_bg: Color,
+    pub cursor_color: Color,
+    pub selection_color: Color,
+    pub palette: [Color; 16],
 }
 
 impl Grid {
     pub fn new(cols: usize, rows: usize) -> Self {
+        Self::with_colors(cols, rows, Color::WHITE, Color::BLACK, Color::CURSOR, Color::SELECTION, [Color::BLACK; 16])
+    }
+
+    pub fn with_colors(
+        cols: usize,
+        rows: usize,
+        default_fg: Color,
+        default_bg: Color,
+        cursor_color: Color,
+        selection_color: Color,
+        palette: [Color; 16],
+    ) -> Self {
+        let blank = Cell { c: ' ', fg: default_fg, bg: default_bg, bold: false };
         Self {
             cols,
             rows,
-            cells: vec![Cell::default(); cols * rows],
+            cells: vec![blank; cols * rows],
             cursor_col: 0,
             cursor_row: 0,
             scroll_top: 0,
             scroll_bottom: rows - 1,
-            fg: Color::WHITE,
-            bg: Color::BLACK,
+            fg: default_fg,
+            bg: default_bg,
             bold: false,
             scrollback: Vec::new(),
+            default_fg,
+            default_bg,
+            cursor_color,
+            selection_color,
+            palette,
         }
     }
 
     pub fn resize(&mut self, cols: usize, rows: usize) {
-        let mut new_cells = vec![Cell::default(); cols * rows];
+        let blank = self.blank_cell();
+        let mut new_cells = vec![blank; cols * rows];
         let copy_rows = self.rows.min(rows);
         let copy_cols = self.cols.min(cols);
         for r in 0..copy_rows {
@@ -117,8 +144,8 @@ impl Grid {
         let top = self.scroll_top;
         let bot = self.scroll_bottom;
         let cols = self.cols;
+        let blank = self.blank_cell();
         for _ in 0..n {
-            // Only push to scrollback when the full screen scrolls (scroll_top == 0)
             if top == 0 {
                 let line: Vec<Cell> = (0..cols)
                     .map(|c| self.cells[top * cols + c].clone())
@@ -134,7 +161,7 @@ impl Grid {
                 }
             }
             for c in 0..cols {
-                self.cells[bot * cols + c] = Cell::default();
+                self.cells[bot * cols + c] = blank.clone();
             }
         }
     }
@@ -143,14 +170,20 @@ impl Grid {
         self.scrollback.len()
     }
 
+    pub fn blank_cell(&self) -> Cell {
+        Cell { c: ' ', fg: self.default_fg, bg: self.default_bg, bold: false }
+    }
+
     pub fn clear_line(&mut self, row: usize) {
         let cols = self.cols;
+        let blank = self.blank_cell();
         for c in 0..cols {
-            self.cells[row * cols + c] = Cell::default();
+            self.cells[row * cols + c] = blank.clone();
         }
     }
 
     pub fn clear_screen(&mut self) {
-        self.cells = vec![Cell::default(); self.cols * self.rows];
+        let blank = self.blank_cell();
+        self.cells = vec![blank; self.cols * self.rows];
     }
 }

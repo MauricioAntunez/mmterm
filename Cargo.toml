@@ -30,6 +30,14 @@ crossbeam-channel = "0.5"
 # Clipboard
 arboard = "3"
 
+# System font discovery
+font-kit = "0.14"
+
+# Config file parsing
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+dirs-next = "2"
+
 # Error handling
 anyhow = "1"
 

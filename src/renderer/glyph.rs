@@ -1,3 +1,7 @@
+use font_kit::family_name::FamilyName;
+use font_kit::handle::Handle;
+use font_kit::properties::{Properties, Style, Weight};
+use font_kit::source::SystemSource;
 use fontdue::{Font, FontSettings};
 use std::collections::HashMap;
 
@@ -15,13 +19,11 @@ pub struct GlyphCache {
 }
 
 impl GlyphCache {
-    pub fn new() -> Self {
-        let font_data = include_bytes!("../../assets/JetBrainsMono-Regular.ttf");
-        let bold_data = include_bytes!("../../assets/JetBrainsMono-Bold.ttf");
-        let font = Font::from_bytes(font_data as &[u8], FontSettings::default())
-            .expect("Failed to load regular font");
-        let bold_font = Font::from_bytes(bold_data as &[u8], FontSettings::default())
-            .expect("Failed to load bold font");
+    pub fn new(family: &str) -> Self {
+        let font = load_system_font(family, false)
+            .unwrap_or_else(|| load_fallback(false));
+        let bold_font = load_system_font(family, true)
+            .unwrap_or_else(|| load_fallback(true));
         Self { font, bold_font, cache: HashMap::new() }
     }
 
@@ -36,4 +38,42 @@ impl GlyphCache {
         let (bmp, w, h) = self.cache.get(&key).unwrap();
         (bmp.as_slice(), *w, *h)
     }
+}
+
+fn load_system_font(family: &str, bold: bool) -> Option<Font> {
+    let source = SystemSource::new();
+    let family_name = FamilyName::Title(family.to_string());
+
+    let mut props = Properties::new();
+    if bold {
+        props.weight = Weight::BOLD;
+    } else {
+        props.weight = Weight::NORMAL;
+    }
+    props.style = Style::Normal;
+
+    let handle = source.select_best_match(&[family_name, FamilyName::Monospace], &props).ok()?;
+    let bytes = font_bytes(handle)?;
+    let font = Font::from_bytes(bytes.as_slice(), FontSettings::default()).ok()?;
+    log::info!("Loaded {} font: {}", if bold { "bold" } else { "regular" }, family);
+    Some(font)
+}
+
+fn font_bytes(handle: Handle) -> Option<Vec<u8>> {
+    match handle {
+        Handle::Path { path, .. } => std::fs::read(&path).ok().or_else(|| {
+            log::warn!("Could not read font file: {}", path.display());
+            None
+        }),
+        Handle::Memory { bytes, .. } => Some(bytes.to_vec()),
+    }
+}
+
+fn load_fallback(bold: bool) -> Font {
+    let data: &[u8] = if bold {
+        include_bytes!("../../assets/JetBrainsMono-Bold.ttf")
+    } else {
+        include_bytes!("../../assets/JetBrainsMono-Regular.ttf")
+    };
+    Font::from_bytes(data, FontSettings::default()).expect("embedded fallback font failed")
 }

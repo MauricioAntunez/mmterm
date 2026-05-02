@@ -1,10 +1,14 @@
+mod config;
 mod input;
 mod pty;
 mod renderer;
 mod terminal;
+mod tui_config;
 mod ui;
 
 use arboard::Clipboard;
+use config::Config;
+use tui_config::{ConfigAction, ConfigPanel};
 use crossbeam_channel::{unbounded, Receiver};
 use input::{handle_ctrl_w, handle_key, InputMode};
 use renderer::{PaneView, Renderer};
@@ -18,8 +22,6 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 use crate::input::keybindings::Action;
-
-const FONT_PX: f32 = 16.0;
 
 struct PaneEntry {
     pane: Pane,
@@ -40,23 +42,28 @@ struct App {
     cursor_blink: bool,
     blink_ticks: u32,
     ctrl_w_pending: bool,
+    config: Config,
+    config_panel: Option<ConfigPanel>,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(config: Config) -> Self {
+        let renderer = Renderer::new(&config.font.family, config.font.size);
         Self {
             window: None,
             surface: None,
-            renderer: Renderer::new(FONT_PX),
+            renderer,
             panes: HashMap::new(),
             next_id: 0,
             active: 0,
-            layout: Layout::new(0, 800, 600),
+            layout: Layout::new(0, config.window.width, config.window.height),
             mode: InputMode::Insert,
             modifiers: Modifiers::default(),
             cursor_blink: true,
             blink_ticks: 0,
             ctrl_w_pending: false,
+            config_panel: None,
+            config,
         }
     }
 
@@ -65,9 +72,17 @@ impl App {
         self.next_id += 1;
         let [_, _, w, h] = rect;
         let (cols, rows) = self.renderer.grid_size_for(w, h);
-        let pane = Pane::new(cols, rows, rect);
+        let c = &self.config.colors;
+        let pane = Pane::new_with_colors(
+            cols, rows, rect,
+            c.fg(), c.bg(), c.cursor(), c.selection(),
+            c.palette_colors(),
+        );
         let (tx, rx) = unbounded::<Vec<u8>>();
-        match pty::PtySession::spawn(cols as u16, rows as u16, tx) {
+        let shell = self.config.shell.program.clone()
+            .or_else(|| std::env::var("SHELL").ok())
+            .unwrap_or_else(|| "/bin/bash".to_string());
+        match pty::PtySession::spawn_with_shell(cols as u16, rows as u16, tx, &shell) {
             Ok(pty) => { self.panes.insert(id, PaneEntry { pane, pty, rx }); }
             Err(e) => log::error!("PTY spawn failed: {e}"),
         }
@@ -144,10 +159,59 @@ impl App {
         }
     }
 
+    fn open_config_panel(&mut self) {
+        self.config_panel = Some(ConfigPanel::from_config(&self.config));
+    }
+
+    fn apply_config(&mut self, new_cfg: Config, window: &Window) {
+        new_cfg.save();
+        window.set_title(&new_cfg.window.title);
+        self.config = new_cfg;
+        self.config_panel = None;
+    }
+
     fn focus_next(&mut self) {
         let leaves = self.layout.leaves();
         if let Some(pos) = leaves.iter().position(|&id| id == self.active) {
             self.active = leaves[(pos + 1) % leaves.len()];
+        }
+    }
+
+    fn handle_config_key(&mut self, event: &winit::event::KeyEvent) {
+        use winit::keyboard::{Key, NamedKey};
+        let ctrl = self.modifiers.state().control_key();
+        let panel = match &mut self.config_panel {
+            Some(p) => p,
+            None => return,
+        };
+
+        let action = match &event.logical_key {
+            Key::Named(NamedKey::Escape) => panel.handle_escape(),
+            Key::Named(NamedKey::Enter) => panel.handle_char('\r'),
+            Key::Named(NamedKey::Backspace) => panel.handle_backspace(),
+            Key::Named(NamedKey::ArrowUp) => panel.handle_up(),
+            Key::Named(NamedKey::ArrowDown) => panel.handle_down(),
+            Key::Named(NamedKey::Space) => panel.handle_char(' '),
+            Key::Character(s) => {
+                if ctrl && s.eq_ignore_ascii_case("s") {
+                    panel.save()
+                } else {
+                    let c = s.chars().next().unwrap_or(' ');
+                    panel.handle_char(c)
+                }
+            }
+            _ => ConfigAction::None,
+        };
+
+        match action {
+            ConfigAction::Save(cfg) => {
+                let window = self.window.clone();
+                if let Some(w) = window {
+                    self.apply_config(cfg, &w);
+                }
+            }
+            ConfigAction::Cancel => { self.config_panel = None; }
+            ConfigAction::None => {}
         }
     }
 
@@ -194,6 +258,11 @@ impl App {
         }).collect();
 
         self.renderer.draw(pixels, w, h, &views, &separators, &self.mode);
+
+        if let Some(panel) = &self.config_panel {
+            self.renderer.draw_config_panel(pixels, w, h, panel);
+        }
+
         buf.present().unwrap();
         window.request_redraw();
     }
@@ -202,8 +271,11 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let attrs = Window::default_attributes()
-            .with_title("mmterm")
-            .with_inner_size(winit::dpi::LogicalSize::new(800u32, 600u32));
+            .with_title(self.config.window.title.clone())
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                self.config.window.width,
+                self.config.window.height,
+            ));
 
         let window = Arc::new(event_loop.create_window(attrs).unwrap());
         let ctx = softbuffer::Context::new(window.clone()).unwrap();
@@ -241,6 +313,12 @@ impl ApplicationHandler for App {
 
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {
+                    return;
+                }
+
+                // Config panel intercepts all input when open
+                if self.config_panel.is_some() {
+                    self.handle_config_key(&event);
                     return;
                 }
 
@@ -327,6 +405,7 @@ impl ApplicationHandler for App {
                     Action::FocusNext => self.focus_next(),
                     Action::ClosePane => self.do_close_pane(event_loop),
 
+                    Action::OpenConfig => self.open_config_panel(),
                     Action::Quit => event_loop.exit(),
                     Action::None => {}
                 }
@@ -347,8 +426,10 @@ impl ApplicationHandler for App {
 
 fn main() {
     env_logger::init();
+    Config::write_default_if_missing();
+    let config = Config::load();
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
-    let mut app = App::new();
+    let mut app = App::new(config);
     event_loop.run_app(&mut app).unwrap();
 }

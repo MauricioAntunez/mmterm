@@ -1,15 +1,27 @@
+use crate::terminal::grid::Color;
 use crate::terminal::TerminalParser;
 
 pub struct Pane {
     pub parser: TerminalParser,
     pub rect: [u32; 4],
-    /// Lines scrolled up from the bottom (0 = live view)
     pub scroll_offset: usize,
 }
 
 impl Pane {
     pub fn new(cols: usize, rows: usize, rect: [u32; 4]) -> Self {
         Self { parser: TerminalParser::new(cols, rows), rect, scroll_offset: 0 }
+    }
+
+    pub fn new_with_colors(
+        cols: usize, rows: usize, rect: [u32; 4],
+        fg: Color, bg: Color, cursor: Color, selection: Color,
+        palette: [Color; 16],
+    ) -> Self {
+        Self {
+            parser: TerminalParser::new_with_colors(cols, rows, fg, bg, cursor, selection, palette),
+            rect,
+            scroll_offset: 0,
+        }
     }
 
     pub fn process(&mut self, bytes: &[u8]) {

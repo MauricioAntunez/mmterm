@@ -22,6 +22,8 @@ pub enum Action {
     ClosePane,       // Ctrl+W q
     // Signals the app to enter Ctrl+W pending state
     CtrlWPrefix,
+    /// Open the config TUI panel
+    OpenConfig,
     Quit,
     None,
 }
@@ -66,7 +68,8 @@ pub fn handle_key(
     if ctrl {
         match &event.logical_key {
             Key::Character(s) if s.eq_ignore_ascii_case("q") => return Action::Quit,
-            // Ctrl+PageUp / Ctrl+PageDown also scroll
+            // Ctrl+, opens config panel
+            Key::Character(s) if s == "," => return Action::OpenConfig,
             _ => {}
         }
         if event.logical_key == Key::Named(NamedKey::PageUp) {

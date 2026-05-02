@@ -9,7 +9,18 @@ pub struct PtySession {
 }
 
 impl PtySession {
+    #[allow(dead_code)]
     pub fn spawn(cols: u16, rows: u16, output_tx: Sender<Vec<u8>>) -> anyhow::Result<Self> {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        Self::spawn_with_shell(cols, rows, output_tx, &shell)
+    }
+
+    pub fn spawn_with_shell(
+        cols: u16,
+        rows: u16,
+        output_tx: Sender<Vec<u8>>,
+        shell: &str,
+    ) -> anyhow::Result<Self> {
         let pty_system = NativePtySystem::default();
         let pair = pty_system.openpty(PtySize {
             rows,
@@ -18,8 +29,7 @@ impl PtySession {
             pixel_height: 0,
         })?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-        let mut cmd = CommandBuilder::new(&shell);
+        let mut cmd = CommandBuilder::new(shell);
         cmd.env("TERM", "xterm-256color");
 
         let _child = pair.slave.spawn_command(cmd)?;

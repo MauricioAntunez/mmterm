@@ -2,6 +2,7 @@ use super::glyph::GlyphCache;
 use crate::input::InputMode;
 use crate::terminal::grid::Cell;
 use crate::terminal::{Color, Grid};
+use crate::tui_config::ConfigPanel;
 
 const STATUS_BAR_H: u32 = 22;
 const BADGE_PAD_X: u32 = 8;
@@ -26,8 +27,8 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(font_px: f32) -> Self {
-        let mut glyphs = GlyphCache::new();
+    pub fn new(font_family: &str, font_px: f32) -> Self {
+        let mut glyphs = GlyphCache::new(font_family);
         let (_, w, _) = glyphs.rasterize('M', font_px, false);
         let cell_width = w.max(1);
         let cell_height = (font_px * 1.4) as u32;
@@ -54,7 +55,8 @@ impl Renderer {
         separators: &[[u32; 4]],
         mode: &InputMode,
     ) {
-        buf.fill(color_u32(Color::BLACK));
+        let bg_fill = panes.first().map(|p| p.grid.default_bg).unwrap_or(Color::BLACK);
+        buf.fill(color_u32(bg_fill));
 
         for pane in panes {
             self.draw_pane(buf, buf_width, pane, mode);
@@ -125,9 +127,9 @@ impl Renderer {
                 });
 
                 let bg = if is_cursor {
-                    Color::CURSOR
+                    grid.cursor_color
                 } else if is_selected {
-                    Color::SELECTION
+                    grid.selection_color
                 } else {
                     cell.bg
                 };
@@ -166,6 +168,178 @@ impl Renderer {
                     }
                 }
             }
+        }
+    }
+
+    pub fn draw_config_panel(&mut self, buf: &mut [u32], bw: u32, bh: u32, panel: &ConfigPanel) {
+        // Semi-transparent overlay
+        for p in buf.iter_mut() {
+            let r = ((*p >> 16) & 0xFF) / 3;
+            let g = ((*p >> 8) & 0xFF) / 3;
+            let b = (*p & 0xFF) / 3;
+            *p = 0xFF_00_00_00 | (r << 16) | (g << 8) | b;
+        }
+
+        let fp = self.status_font_px;
+        let cw = self.glyphs.rasterize('M', fp, false).1;
+        let row_h = self.cell_height + 4;
+        let section_h = row_h - 2; // section headers are slimmer
+        let pad = cw;
+
+        let panel_w = (bw as f32 * 0.65) as u32;
+        // Fixed panel height: title + footer + visible rows (fit inside window)
+        let footer_rows = 2u32; // hint + status
+        let max_visible = ((bh.saturating_sub(STATUS_BAR_H + row_h * 2 + row_h * footer_rows)) / row_h).max(4);
+        let panel_h = row_h * (max_visible + 2 + footer_rows);
+        let px = (bw - panel_w) / 2;
+        let py = (bh.saturating_sub(panel_h)) / 2;
+
+        let bg     = 0xFF_1a_1b_26_u32;
+        let border = 0xFF_89_b4_fa_u32;
+
+        // Background + border
+        for dy in 0..panel_h {
+            for dx in 0..panel_w {
+                let idx = ((py + dy) * bw + px + dx) as usize;
+                if idx < buf.len() { buf[idx] = bg; }
+            }
+        }
+        for dx in 0..panel_w {
+            let t = (py * bw + px + dx) as usize;
+            let b = ((py + panel_h - 1) * bw + px + dx) as usize;
+            if t < buf.len() { buf[t] = border; }
+            if b < buf.len() { buf[b] = border; }
+        }
+        for dy in 0..panel_h {
+            let l = ((py + dy) * bw + px) as usize;
+            let r = ((py + dy) * bw + px + panel_w - 1) as usize;
+            if l < buf.len() { buf[l] = border; }
+            if r < buf.len() { buf[r] = border; }
+        }
+
+        // Title bar
+        self.draw_str(buf, bw, bh, px + pad, py + 4, "CONFIGURATION", fp, true, 0xFF_cb_a6_f7);
+        // scroll indicator
+        let total = panel.fields.len();
+        let scroll_info = format!("{}/{}", panel.selected + 1, total);
+        let si_x = px + panel_w - cw * scroll_info.len() as u32 - pad;
+        self.draw_str(buf, bw, bh, si_x, py + 4, &scroll_info, fp, false, 0xFF_58_5b_70);
+
+        // Scroll window: keep selected in view
+        let sel = panel.selected;
+        let scroll_start = if sel >= max_visible as usize {
+            sel + 1 - max_visible as usize
+        } else {
+            0
+        };
+
+        let content_y = py + row_h * 2;
+        let mut draw_y = content_y;
+
+        for (i, field) in panel.fields.iter().enumerate().skip(scroll_start) {
+            if draw_y + row_h > py + panel_h - row_h * footer_rows { break; }
+
+            // Section header
+            if let Some(sec) = field.section {
+                // separator line
+                for dx in 1..panel_w - 1 {
+                    let idx = (draw_y * bw + px + dx) as usize;
+                    if idx < buf.len() { buf[idx] = 0xFF_24_25_3a; }
+                }
+                let sec_label = format!("── {} ", sec);
+                self.draw_str(buf, bw, bh, px + pad, draw_y + 1, &sec_label, fp, true, 0xFF_58_5b_70);
+                draw_y += section_h;
+                if draw_y + row_h > py + panel_h - row_h * footer_rows { break; }
+            }
+
+            let is_sel     = i == sel;
+            let is_editing = panel.editing && is_sel;
+
+            // Row background
+            let row_bg = if is_sel { 0xFF_2a_2b_3d } else { bg };
+            for dx in 1..panel_w - 1 {
+                for dy in 0..row_h {
+                    let idx = ((draw_y + dy) * bw + px + dx) as usize;
+                    if idx < buf.len() { buf[idx] = row_bg; }
+                }
+            }
+            if is_sel {
+                // left accent bar
+                for dy in 0..row_h {
+                    let idx = ((draw_y + dy) * bw + px + 1) as usize;
+                    if idx < buf.len() { buf[idx] = border; }
+                }
+            }
+
+            // Color swatch for hex fields
+            if field.kind == crate::tui_config::FieldKind::HexColor {
+                let hex = panel.display_value(i);
+                if let Ok(n) = u32::from_str_radix(hex.trim_start_matches('#'), 16) {
+                    let swatch_color = 0xFF_00_00_00 | n;
+                    for dy in 2..row_h - 2 {
+                        for dx in 0..8 {
+                            let sx = px + panel_w - pad - 10 + dx;
+                            let sy = draw_y + dy;
+                            let idx = (sy * bw + sx) as usize;
+                            if idx < buf.len() { buf[idx] = swatch_color; }
+                        }
+                    }
+                }
+            }
+
+            let label_color = if is_sel { 0xFF_f9_e2_af } else { 0xFF_ba_c2_de };
+            let cursor_str  = if is_editing { "_" } else { "" };
+            let text = format!("{:<18} {}{}", field.label, panel.display_value(i), cursor_str);
+            self.draw_str(buf, bw, bh, px + pad + 4, draw_y + 2, &text, fp, false, label_color);
+
+            if is_editing {
+                let ex = px + panel_w - cw * 7 - pad;
+                self.draw_str(buf, bw, bh, ex, draw_y + 2, "[editing]", fp, false, 0xFF_a6_e3_a1);
+            }
+
+            draw_y += row_h;
+        }
+
+        // Footer: hint + status/help
+        let footer_y = py + panel_h - row_h * footer_rows;
+        // divider
+        for dx in 1..panel_w - 1 {
+            let idx = (footer_y * bw + px + dx) as usize;
+            if idx < buf.len() { buf[idx] = 0xFF_31_32_44; }
+        }
+
+        let hint = format!("hint: {}", panel.fields[panel.selected].hint);
+        self.draw_str(buf, bw, bh, px + pad, footer_y + 2, &hint, fp, false, 0xFF_58_5b_70);
+
+        let status_y = py + panel_h - row_h;
+        let status = panel.status.as_deref()
+            .unwrap_or("j/k: move  Enter/i: edit  Ctrl+S: save  q/Esc: cancel");
+        let status_color = if panel.status.is_some() { 0xFF_f3_8b_a8 } else { 0xFF_58_5b_70 };
+        self.draw_str(buf, bw, bh, px + pad, status_y, status, fp, false, status_color);
+    }
+
+    fn draw_str(
+        &mut self, buf: &mut [u32], bw: u32, bh: u32,
+        mut x: u32, y: u32, s: &str, px: f32, bold: bool, color: u32,
+    ) {
+        for c in s.chars() {
+            let (bitmap, gw, gh) = self.glyphs.rasterize(c, px, bold);
+            let baseline = (self.cell_height as f32 * 0.8) as u32;
+            let cy = y + baseline.saturating_sub(gh);
+            for gy in 0..gh {
+                for gx in 0..gw {
+                    let alpha = bitmap[(gy * gw + gx) as usize];
+                    if alpha == 0 { continue; }
+                    let sx = x + gx;
+                    let sy = cy + gy;
+                    if sx >= bw || sy >= bh { continue; }
+                    let idx = (sy * bw + sx) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = blend(buf[idx], color, alpha);
+                    }
+                }
+            }
+            x += gw.max(self.glyphs.rasterize('M', px, bold).1);
         }
     }
 
@@ -239,7 +413,8 @@ fn get_cell<'a>(grid: &'a Grid, scroll_offset: usize, row: usize, col: usize) ->
     }
 }
 
-static BLANK_CELL: Cell = Cell { c: ' ', fg: Color::WHITE, bg: Color::BLACK, bold: false };
+// bg will differ per grid but this fallback is only hit for out-of-bounds scrollback
+static BLANK_CELL: Cell = Cell { c: ' ', fg: Color::WHITE, bg: Color::rgb(0x12, 0x12, 0x12), bold: false };
 
 fn mode_style(mode: &InputMode) -> (&'static str, u32) {
     match mode {
