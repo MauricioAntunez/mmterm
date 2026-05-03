@@ -220,7 +220,7 @@ fn handle_normal(event: &KeyEvent, _ctrl: bool) -> Action {
             "v" => return Action::SetMode(InputMode::Visual {
                 start_col: 0, start_row: 0, cur_col: 0, cur_row: 0,
             }),
-            "q" => return Action::Quit,
+            "q" => return Action::ClosePane,
             _ => {}
         },
         _ => {}
