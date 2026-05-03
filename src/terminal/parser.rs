@@ -104,7 +104,7 @@ impl Perform for Performer<'_> {
                     let col = self.grid.cursor_col;
                     let cols = self.grid.cols;
                     let rows = self.grid.rows;
-                    let blank = self.grid.blank_cell();
+                    let blank = self.grid.erase_cell();
                     for c in col..cols {
                         self.grid.cells[row * cols + c] = blank.clone();
                     }
@@ -116,7 +116,7 @@ impl Perform for Performer<'_> {
                     let row = self.grid.cursor_row;
                     let col = self.grid.cursor_col;
                     let cols = self.grid.cols;
-                    let blank = self.grid.blank_cell();
+                    let blank = self.grid.erase_cell();
                     for c in 0..=col {
                         self.grid.cells[row * cols + c] = blank.clone();
                     }
@@ -132,7 +132,7 @@ impl Perform for Performer<'_> {
                 let row = self.grid.cursor_row;
                 let col = self.grid.cursor_col;
                 let cols = self.grid.cols;
-                let blank = self.grid.blank_cell();
+                let blank = self.grid.erase_cell();
                 match p0 {
                     0 => {
                         for c in col..cols {

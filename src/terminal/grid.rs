@@ -208,7 +208,7 @@ impl Grid {
         self.cursor_col += 1;
 
         if wide && self.cursor_col < self.cols {
-            let blank = self.blank_cell();
+            let blank = self.erase_cell();
             let cont = self.cell_mut(self.cursor_col, self.cursor_row);
             *cont = Cell { wide_cont: true, ..blank };
             self.cursor_col += 1;
@@ -227,7 +227,7 @@ impl Grid {
         let top = self.scroll_top;
         let bot = self.scroll_bottom;
         let cols = self.cols;
-        let blank = self.blank_cell();
+        let blank = self.erase_cell();
         for _ in 0..n {
             if top == 0 {
                 let line: Vec<Cell> = (0..cols)
@@ -281,16 +281,23 @@ impl Grid {
         Cell { c: ' ', fg: self.default_fg, bg: self.default_bg, bold: false, wide: false, wide_cont: false }
     }
 
+    // Erase operations (ED, EL, scroll blank rows) use the current SGR background,
+    // not the default — this is the BCE (Background Color Erase) behaviour that
+    // xterm and most terminals implement.
+    pub fn erase_cell(&self) -> Cell {
+        Cell { c: ' ', fg: self.default_fg, bg: self.bg, bold: false, wide: false, wide_cont: false }
+    }
+
     pub fn clear_line(&mut self, row: usize) {
         let cols = self.cols;
-        let blank = self.blank_cell();
+        let blank = self.erase_cell();
         for c in 0..cols {
             self.cells[row * cols + c] = blank.clone();
         }
     }
 
     pub fn clear_screen(&mut self) {
-        let blank = self.blank_cell();
+        let blank = self.erase_cell();
         self.cells = vec![blank; self.cols * self.rows];
     }
 }
