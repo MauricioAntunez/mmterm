@@ -37,6 +37,18 @@ impl Default for Cell {
     }
 }
 
+struct SavedScreen {
+    cells: Vec<Cell>,
+    cursor_col: usize,
+    cursor_row: usize,
+    scroll_top: usize,
+    scroll_bottom: usize,
+    fg: Color,
+    bg: Color,
+    bold: bool,
+    scrollback: Vec<Vec<Cell>>,
+}
+
 pub struct Grid {
     pub cols: usize,
     pub rows: usize,
@@ -59,6 +71,12 @@ pub struct Grid {
     pub palette: [Color; 16],
     // DECCKM: when true, arrow keys send SS3 sequences (\eOA) instead of CSI (\e[A)
     pub application_cursor_keys: bool,
+    // DECTCEM: cursor visibility
+    pub cursor_visible: bool,
+    // Bracketed paste mode (?2004)
+    pub bracketed_paste: bool,
+    // Alternate screen buffer (?1049): holds saved primary screen while in alt screen
+    alternate_saved: Option<SavedScreen>,
 }
 
 impl Grid {
@@ -90,7 +108,54 @@ impl Grid {
             selection_color,
             palette,
             application_cursor_keys: false,
+            cursor_visible: true,
+            bracketed_paste: false,
+            alternate_saved: None,
         }
+    }
+
+    pub fn enter_alternate_screen(&mut self) {
+        if self.alternate_saved.is_some() {
+            return;
+        }
+        let blank = self.blank_cell();
+        self.alternate_saved = Some(SavedScreen {
+            cells: std::mem::replace(&mut self.cells, vec![blank; self.cols * self.rows]),
+            cursor_col: self.cursor_col,
+            cursor_row: self.cursor_row,
+            scroll_top: self.scroll_top,
+            scroll_bottom: self.scroll_bottom,
+            fg: self.fg,
+            bg: self.bg,
+            bold: self.bold,
+            scrollback: std::mem::take(&mut self.scrollback),
+        });
+        self.cursor_col = 0;
+        self.cursor_row = 0;
+        self.scroll_top = 0;
+        self.scroll_bottom = self.rows - 1;
+        self.fg = self.default_fg;
+        self.bg = self.default_bg;
+        self.bold = false;
+    }
+
+    pub fn exit_alternate_screen(&mut self) {
+        if let Some(saved) = self.alternate_saved.take() {
+            self.cells = saved.cells;
+            self.cursor_col = saved.cursor_col;
+            self.cursor_row = saved.cursor_row;
+            self.scroll_top = saved.scroll_top;
+            self.scroll_bottom = saved.scroll_bottom;
+            self.fg = saved.fg;
+            self.bg = saved.bg;
+            self.bold = saved.bold;
+            self.scrollback = saved.scrollback;
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn in_alternate_screen(&self) -> bool {
+        self.alternate_saved.is_some()
     }
 
     pub fn resize(&mut self, cols: usize, rows: usize) {

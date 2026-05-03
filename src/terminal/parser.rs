@@ -59,10 +59,17 @@ impl Perform for Performer<'_> {
         // DEC private modes: \e[?<n>h (set) / \e[?<n>l (reset)
         if intermediates == b"?" {
             match (action, p0) {
-                ('h', 1) => { self.grid.application_cursor_keys = true; return; }
-                ('l', 1) => { self.grid.application_cursor_keys = false; return; }
-                _ => return,
+                ('h', 1)    => self.grid.application_cursor_keys = true,
+                ('l', 1)    => self.grid.application_cursor_keys = false,
+                ('h', 25)   => self.grid.cursor_visible = true,
+                ('l', 25)   => self.grid.cursor_visible = false,
+                ('h', 1049) => self.grid.enter_alternate_screen(),
+                ('l', 1049) => self.grid.exit_alternate_screen(),
+                ('h', 2004) => self.grid.bracketed_paste = true,
+                ('l', 2004) => self.grid.bracketed_paste = false,
+                _ => {}
             }
+            return;
         }
 
         match action {
