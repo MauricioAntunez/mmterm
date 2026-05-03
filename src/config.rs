@@ -29,7 +29,11 @@ pub struct WindowConfig {
     pub width: u32,
     pub height: u32,
     pub title: String,
+    #[serde(default = "default_blink_ms")]
+    pub cursor_blink_ms: u32,
 }
+
+fn default_blink_ms() -> u32 { 500 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ShellConfig {
@@ -76,7 +80,7 @@ impl Default for FontConfig {
 
 impl Default for WindowConfig {
     fn default() -> Self {
-        Self { width: 800, height: 600, title: "mmterm".to_string() }
+        Self { width: 800, height: 600, title: "mmterm".to_string(), cursor_blink_ms: 500 }
     }
 }
 
@@ -148,9 +152,10 @@ family = {family:?}
 size = {size}
 
 [window]
-width  = {width}
-height = {height}
-title  = {title:?}
+width           = {width}
+height          = {height}
+title           = {title:?}
+cursor_blink_ms = {blink_ms}
 
 [shell]
 {shell}
@@ -166,9 +171,10 @@ palette = [
 "#,
             family  = self.font.family,
             size    = self.font.size,
-            width   = self.window.width,
-            height  = self.window.height,
-            title   = self.window.title,
+            width    = self.window.width,
+            height   = self.window.height,
+            title    = self.window.title,
+            blink_ms = self.window.cursor_blink_ms,
             shell   = self.shell.program.as_ref()
                 .map(|s| format!("program = {s:?}"))
                 .unwrap_or_else(|| "# program = \"/bin/zsh\"".into()),

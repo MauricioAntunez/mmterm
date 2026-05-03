@@ -14,6 +14,7 @@ use renderer::{FontMetrics, PaneView, Renderer};
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tui_config::{ConfigAction, ConfigPanel};
 use ui::{Layout, Pane, SplitDir};
 use winit::application::ApplicationHandler;
@@ -54,7 +55,7 @@ struct App {
     mode: InputMode,
     modifiers: Modifiers,
     cursor_blink: bool,
-    blink_ticks: u32,
+    blink_last: Instant,
     ctrl_w_pending: bool,
     config: Config,
     config_panel: Option<ConfigPanel>,
@@ -73,7 +74,7 @@ impl App {
             mode: InputMode::Insert,
             modifiers: Modifiers::default(),
             cursor_blink: true,
-            blink_ticks: 0,
+            blink_last: Instant::now(),
             ctrl_w_pending: false,
             config_panel: None,
             config,
@@ -326,9 +327,8 @@ impl App {
     fn redraw(&mut self) {
         self.drain_all();
 
-        self.blink_ticks += 1;
-        if self.blink_ticks >= 30 {
-            self.blink_ticks = 0;
+        if self.blink_last.elapsed() >= Duration::from_millis(self.config.window.cursor_blink_ms as u64) {
+            self.blink_last = Instant::now();
             self.cursor_blink = !self.cursor_blink;
         }
 
