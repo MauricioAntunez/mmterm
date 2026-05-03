@@ -25,6 +25,9 @@ pub enum Action {
     NextTab,
     PrevTab,
     CloseTab,
+    IncreaseFontSize,
+    DecreaseFontSize,
+    ResetFontSize,
     Quit,
     None,
 }
@@ -92,6 +95,12 @@ pub fn handle_key(
             Key::Character(s) if s.eq_ignore_ascii_case("q") => return Action::Quit,
             Key::Character(s) if s == ","                    => return Action::OpenConfig,
             Key::Character(s) if s.eq_ignore_ascii_case("t") => return Action::NewTab,
+            // Ctrl++ / Ctrl+= — increase font size
+            Key::Character(s) if s == "+" || s == "="        => return Action::IncreaseFontSize,
+            // Ctrl+- — decrease font size
+            Key::Character(s) if s == "-"                    => return Action::DecreaseFontSize,
+            // Ctrl+0 — reset font size
+            Key::Character(s) if s == "0"                    => return Action::ResetFontSize,
             _ => {}
         }
         // Ctrl+PageUp/Down → tab navigation

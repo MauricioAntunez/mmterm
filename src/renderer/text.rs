@@ -12,59 +12,59 @@ const SEP_ACTIVE_COLOR: u32 = 0xFF_58_5b_70;
 
 pub struct PaneView<'a> {
     pub grid: &'a Grid,
-    /// Pixel rect [x, y, w, h] within the window
     pub rect: [u32; 4],
     pub scroll_offset: usize,
     pub is_active: bool,
     pub show_cursor: bool,
 }
 
-pub struct Renderer {
+/// Cell layout metrics derived from a specific font size.
+/// Stored per-tab so each tab can have its own font size without
+/// affecting the global config or other tabs.
+#[derive(Clone, Debug)]
+pub struct FontMetrics {
+    pub font_px: f32,
     pub cell_width: u32,
     pub cell_height: u32,
-    /// Pixels from top of cell to baseline
-    baseline: u32,
-    font_px: f32,
+    pub baseline: u32,
+}
+
+impl FontMetrics {
+    pub fn compute(glyphs: &mut GlyphCache, font_px: f32) -> Self {
+        let m = glyphs.metrics('M', font_px, false);
+        let cell_width = m.advance_width.ceil() as u32;
+        let ascender = m.height as u32;
+        let g = glyphs.metrics('g', font_px, false);
+        let descender = ((-g.ymin).max(0)) as u32;
+        let cell_height = ascender + descender + 2;
+        let baseline = ascender + 1;
+        log::info!(
+            "FontMetrics at {font_px}px: cell={}x{} baseline={}",
+            cell_width, cell_height, baseline
+        );
+        Self { font_px, cell_width: cell_width.max(1), cell_height: cell_height.max(1), baseline }
+    }
+
+    pub fn grid_size_for(&self, w: u32, h: u32) -> (usize, usize) {
+        ((w / self.cell_width).max(1) as usize, (h / self.cell_height).max(1) as usize)
+    }
+}
+
+pub struct Renderer {
+    pub font_px: f32, // default from config (reference only)
     status_font_px: f32,
-    glyphs: GlyphCache,
+    pub glyphs: GlyphCache,
 }
 
 impl Renderer {
     pub fn new(font_family: &str, font_px: f32) -> Self {
-        let mut glyphs = GlyphCache::new(font_family);
-
-        // Use advance_width as cell width (correct for monospace fonts)
-        let m = glyphs.metrics('M', font_px, false);
-        let cell_width = m.advance_width.ceil() as u32;
-
-        // Ascender: 'M' sits on the baseline, so its height = ascender
-        let ascender = m.height as u32;
-
-        // Descender: measure how far 'g' dips below baseline
-        let g = glyphs.metrics('g', font_px, false);
-        let descender = ((-g.ymin).max(0)) as u32;
-
-        // Add 1px top padding + 1px bottom padding
-        let cell_height = ascender + descender + 2;
-        let baseline = ascender + 1;
-
-        log::info!(
-            "Font metrics at {font_px}px: cell={cell_width}x{cell_height} baseline={baseline} \
-             ascender={ascender} descender={descender}"
-        );
-
-        Self { cell_width: cell_width.max(1), cell_height: cell_height.max(1), baseline, font_px, status_font_px: 13.0, glyphs }
+        let glyphs = GlyphCache::new(font_family);
+        Self { font_px, status_font_px: 13.0, glyphs }
     }
 
-    /// Grid size for a given pixel rect (no status bar reservation — caller provides usable rect).
-    pub fn grid_size_for(&self, w: u32, h: u32) -> (usize, usize) {
-        ((w / self.cell_width).max(1) as usize, (h / self.cell_height).max(1) as usize)
-    }
-
-    /// Grid size for the full window, reserving the status bar.
-    #[allow(dead_code)]
-    pub fn grid_size(&self, width: u32, height: u32) -> (usize, usize) {
-        self.grid_size_for(width, height.saturating_sub(STATUS_BAR_H))
+    /// Compute metrics for a given font size using the shared glyph cache.
+    pub fn make_metrics(&mut self, font_px: f32) -> FontMetrics {
+        FontMetrics::compute(&mut self.glyphs, font_px)
     }
 
     pub fn draw(
@@ -76,12 +76,13 @@ impl Renderer {
         separators: &[[u32; 4]],
         mode: &InputMode,
         tab_titles: &[(String, bool)],
+        metrics: &FontMetrics,
     ) {
         let bg_fill = panes.first().map(|p| p.grid.default_bg).unwrap_or(Color::BLACK);
         buf.fill(color_u32(bg_fill));
 
         for pane in panes {
-            self.draw_pane(buf, buf_width, pane, mode);
+            self.draw_pane(buf, buf_width, pane, mode, metrics);
         }
 
         // Draw separators
@@ -97,24 +98,14 @@ impl Renderer {
             }
         }
 
-        // Active pane border highlight (top edge of active pane)
-        if let Some(pane) = panes.iter().find(|p| p.is_active) {
-            let [px, py, pw, _] = pane.rect;
-            if py > 0 {
-                for dx in 0..pw {
-                    let idx = ((py - 1) * buf_width + px + dx) as usize;
-                    if idx < buf.len() {
-                        buf[idx] = SEP_ACTIVE_COLOR;
-                    }
-                }
-            }
-        }
+        // Active pane: highlight left edge of its separator(s)
+        // (top-edge highlight removed — tab bar serves that role)
 
         self.draw_tab_bar(buf, buf_width, tab_titles);
         self.draw_status_bar(buf, buf_width, buf_height, mode);
     }
 
-    fn draw_pane(&mut self, buf: &mut [u32], buf_width: u32, pane: &PaneView, mode: &InputMode) {
+    fn draw_pane(&mut self, buf: &mut [u32], buf_width: u32, pane: &PaneView, mode: &InputMode, m: &FontMetrics) {
         let [rx, ry, rw, rh] = pane.rect;
         let grid = pane.grid;
 
@@ -132,10 +123,10 @@ impl Renderer {
         for row in 0..grid.rows {
             for col in 0..grid.cols {
                 let cell = get_cell(grid, pane.scroll_offset, row, col);
-                let px = rx + col as u32 * self.cell_width;
-                let py = ry + row as u32 * self.cell_height;
+                let px = rx + col as u32 * m.cell_width;
+                let py = ry + row as u32 * m.cell_height;
 
-                if px + self.cell_width > rx + rw || py + self.cell_height > ry + rh {
+                if px + m.cell_width > rx + rw || py + m.cell_height > ry + rh {
                     continue;
                 }
 
@@ -159,8 +150,8 @@ impl Renderer {
                 let fg = if is_cursor { Color::BLACK } else { cell.fg };
                 let bg32 = color_u32(bg);
 
-                for dy in 0..self.cell_height {
-                    for dx in 0..self.cell_width {
+                for dy in 0..m.cell_height {
+                    for dx in 0..m.cell_width {
                         let idx = ((py + dy) * buf_width + px + dx) as usize;
                         if idx < buf.len() {
                             buf[idx] = bg32;
@@ -172,12 +163,12 @@ impl Renderer {
                     continue;
                 }
 
-                let info = self.glyphs.get(cell.c, self.font_px, cell.bold);
+                let info = self.glyphs.get(cell.c, m.font_px, cell.bold);
                 let (gw, gh) = (info.width, info.height);
                 // Place glyph so its baseline aligns with the cell baseline.
                 // ymin is pixels from baseline to bottom of bitmap.
                 // top of glyph in cell = baseline - (height + ymin)  [ymin usually ≤ 0 for descenders]
-                let glyph_top = self.baseline as i32 - (gh as i32 + info.ymin);
+                let glyph_top = m.baseline as i32 - (gh as i32 + info.ymin);
                 let y_offset = glyph_top.max(0) as u32;
                 let fg32 = color_u32(fg);
 
@@ -252,8 +243,8 @@ impl Renderer {
 
         let fp = self.status_font_px;
         let cw = self.glyphs.rasterize('M', fp, false).1;
-        let row_h = self.cell_height + 4;
-        let section_h = row_h - 2; // section headers are slimmer
+        let row_h = (fp * 1.6) as u32 + 4;
+        let section_h = row_h - 2;
         let pad = cw;
 
         let panel_w = (bw as f32 * 0.65) as u32;
@@ -392,10 +383,10 @@ impl Renderer {
         &mut self, buf: &mut [u32], bw: u32, bh: u32,
         mut x: u32, y: u32, s: &str, px: f32, bold: bool, color: u32,
     ) {
-        let advance = self.glyphs.metrics('M', px, bold).advance_width.ceil() as u32;
-        // Simple baseline: 80% of the row height used by draw_str callers
-        let row_h = self.cell_height;
-        let baseline = (row_h as f32 * 0.8) as u32;
+        let m_metrics = self.glyphs.metrics('M', px, bold);
+        let advance = m_metrics.advance_width.ceil() as u32;
+        let ascender = m_metrics.height as u32;
+        let baseline = ascender;
         for c in s.chars() {
             let info = self.glyphs.get(c, px, bold);
             let (gw, gh) = (info.width, info.height);

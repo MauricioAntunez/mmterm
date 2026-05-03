@@ -10,7 +10,7 @@ use arboard::Clipboard;
 use config::Config;
 use crossbeam_channel::{unbounded, Receiver};
 use input::{handle_ctrl_w, handle_key, InputMode};
-use renderer::{PaneView, Renderer};
+use renderer::{FontMetrics, PaneView, Renderer};
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -38,6 +38,8 @@ struct TabState {
     panes: HashMap<usize, PaneEntry>,
     layout: Layout,
     active: usize,
+    /// Session-only font metrics — not saved to config
+    metrics: FontMetrics,
 }
 
 // ── App ──────────────────────────────────────────────────────────────────────
@@ -98,7 +100,7 @@ impl App {
         let id = self.next_pane_id;
         self.next_pane_id += 1;
         let [_, _, w, h] = rect;
-        let (cols, rows) = self.renderer.grid_size_for(w, h);
+        let (cols, rows) = self.tabs[tab_idx].metrics.grid_size_for(w, h);
         let c = &self.config.colors;
         let pane = Pane::new_with_colors(
             cols, rows, rect,
@@ -123,6 +125,7 @@ impl App {
     // ── Tab management ───────────────────────────────────────────────────────
 
     fn new_tab(&mut self, win_w: u32, win_h: u32) {
+        let metrics = self.renderer.make_metrics(self.renderer.font_px);
         let layout = Layout::new(0, win_w, win_h);
         let initial_rect = layout.rects().first().map(|(_, r)| *r)
             .unwrap_or([0, TAB_BAR_H, win_w, win_h]);
@@ -131,6 +134,7 @@ impl App {
             panes: HashMap::new(),
             layout: Layout::new(0, win_w, win_h),
             active: 0,
+            metrics,
         });
         let id = self.spawn_pane_into(tab_idx, initial_rect);
         self.tabs[tab_idx].layout = Layout::new(id, win_w, win_h);
@@ -178,12 +182,12 @@ impl App {
 
     // ── Resize ───────────────────────────────────────────────────────────────
 
-    fn sync_pane_sizes_tab(renderer: &Renderer, tab: &mut TabState) {
+    fn sync_pane_sizes_tab(tab: &mut TabState) {
         let rects = tab.layout.rects();
         for (id, rect) in rects {
             if let Some(entry) = tab.panes.get_mut(&id) {
                 let [_, _, w, h] = rect;
-                let (cols, rows) = renderer.grid_size_for(w, h);
+                let (cols, rows) = tab.metrics.grid_size_for(w, h);
                 if entry.pane.parser.grid.cols != cols || entry.pane.parser.grid.rows != rows {
                     entry.pane.resize(cols, rows, rect);
                     let _ = entry.pty.resize(cols as u16, rows as u16);
@@ -194,7 +198,7 @@ impl App {
 
     fn sync_all_pane_sizes(&mut self) {
         for tab in &mut self.tabs {
-            Self::sync_pane_sizes_tab(&self.renderer, tab);
+            Self::sync_pane_sizes_tab(tab);
         }
     }
 
@@ -223,8 +227,7 @@ impl App {
         tab.layout.split(active, new_id, dir);
         tab.active = new_id;
         let idx = self.active_tab;
-        let renderer = &self.renderer;
-        Self::sync_pane_sizes_tab(renderer, &mut self.tabs[idx]);
+        Self::sync_pane_sizes_tab(&mut self.tabs[idx]);
     }
 
     fn do_close_pane(&mut self, event_loop: &ActiveEventLoop) {
@@ -239,8 +242,7 @@ impl App {
         tab.panes.remove(&active);
         tab.active = new_focus.unwrap_or_else(|| *tab.panes.keys().next().unwrap());
         let idx = self.active_tab;
-        let renderer = &self.renderer;
-        Self::sync_pane_sizes_tab(renderer, &mut self.tabs[idx]);
+        Self::sync_pane_sizes_tab(&mut self.tabs[idx]);
     }
 
     fn focus_dir(&mut self, dx: i32, dy: i32) {
@@ -259,6 +261,18 @@ impl App {
     }
 
     // ── Config panel ──────────────────────────────────────────────────────────
+
+    fn change_font_size(&mut self, delta: f32) {
+        let current = self.tabs[self.active_tab].metrics.font_px;
+        let new_size = (current + delta).clamp(6.0, 72.0);
+        if (new_size - current).abs() < 0.1 { return; }
+        // Only update active tab's metrics — config is not touched
+        let new_metrics = self.renderer.make_metrics(new_size);
+        let idx = self.active_tab;
+        self.tabs[idx].metrics = new_metrics;
+        Self::sync_pane_sizes_tab(&mut self.tabs[idx]);
+        log::info!("Tab {} font size: {current} → {new_size}", idx + 1);
+    }
 
     fn open_config_panel(&mut self) {
         self.config_panel = Some(ConfigPanel::from_config(&self.config));
@@ -358,7 +372,8 @@ impl App {
             .map(|(i, _)| (format!(" {} ", i + 1), i == self.active_tab))
             .collect();
 
-        self.renderer.draw(pixels, w, h, &views, &separators, &self.mode, &tab_titles);
+        let metrics = self.tabs[self.active_tab].metrics.clone();
+        self.renderer.draw(pixels, w, h, &views, &separators, &self.mode, &tab_titles, &metrics);
 
         if let Some(panel) = &self.config_panel {
             self.renderer.draw_config_panel(pixels, w, h, panel);
@@ -515,6 +530,14 @@ impl ApplicationHandler for App {
                     Action::NextTab  => self.next_tab(),
                     Action::PrevTab  => self.prev_tab(),
                     Action::CloseTab => self.close_tab(event_loop),
+
+                    Action::IncreaseFontSize => self.change_font_size(1.0),
+                    Action::DecreaseFontSize => self.change_font_size(-1.0),
+                    Action::ResetFontSize => {
+                        let default = self.config.font.size;
+                        let current = self.tabs[self.active_tab].metrics.font_px;
+                        self.change_font_size(default - current);
+                    }
 
                     Action::OpenConfig => self.open_config_panel(),
                     Action::Quit => event_loop.exit(),
