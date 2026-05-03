@@ -1,12 +1,12 @@
 use crossbeam_channel::Sender;
-use portable_pty::{CommandBuilder, NativePtySystem, PtyPair, PtySize, PtySystem};
+use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::thread;
 
 pub struct PtySession {
     pub writer: Box<dyn Write + Send>,
-    _pair: PtyPair,
+    master: Box<dyn MasterPty + Send>,
     child_pid: Option<u32>,
 }
 
@@ -32,16 +32,21 @@ impl PtySession {
             pixel_height: 0,
         })?;
 
+        let portable_pty::PtyPair { master, slave } = pair;
+
         let mut cmd = CommandBuilder::new(shell);
         cmd.env("TERM", "xterm-256color");
         if let Some(dir) = cwd {
             cmd.cwd(dir);
         }
 
-        let child = pair.slave.spawn_command(cmd)?;
+        let child = slave.spawn_command(cmd)?;
         let child_pid = child.process_id();
+        // Drop the slave fd now — once the shell process exits and closes its
+        // copy, the master reader will get EIO/EOF, which lets us detect exit.
+        drop(slave);
 
-        let mut reader = pair.master.try_clone_reader()?;
+        let mut reader = master.try_clone_reader()?;
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
             loop {
@@ -56,11 +61,11 @@ impl PtySession {
             }
         });
 
-        let writer = pair.master.take_writer()?;
+        let writer = master.take_writer()?;
 
         Ok(Self {
             writer,
-            _pair: pair,
+            master,
             child_pid,
         })
     }
@@ -77,7 +82,7 @@ impl PtySession {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
-        self._pair.master.resize(PtySize {
+        self.master.resize(PtySize {
             rows,
             cols,
             pixel_width: 0,

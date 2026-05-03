@@ -185,16 +185,49 @@ impl App {
 
     // ── Drain PTY output ─────────────────────────────────────────────────────
 
-    fn drain_all(&mut self) {
-        for tab in &mut self.tabs {
+    /// Drain all pending PTY output and return (tab_idx, pane_id) pairs for
+    /// any panes whose PTY process has exited (sender disconnected).
+    fn drain_all(&mut self) -> Vec<(usize, usize)> {
+        let mut exited = Vec::new();
+        for (tab_idx, tab) in self.tabs.iter_mut().enumerate() {
             let ids: Vec<usize> = tab.panes.keys().copied().collect();
             for id in ids {
                 let entry = tab.panes.get_mut(&id).unwrap();
-                while let Ok(bytes) = entry.rx.try_recv() {
-                    entry.pane.process(&bytes);
+                loop {
+                    match entry.rx.try_recv() {
+                        Ok(bytes) => entry.pane.process(&bytes),
+                        Err(crossbeam_channel::TryRecvError::Empty) => break,
+                        Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                            exited.push((tab_idx, id));
+                            break;
+                        }
+                    }
                 }
             }
         }
+        exited
+    }
+
+    fn close_pane_on_tab(&mut self, tab_idx: usize, pane_id: usize, event_loop: &ActiveEventLoop) {
+        if tab_idx >= self.tabs.len() { return; }
+        if self.tabs[tab_idx].panes.len() == 1 {
+            if self.tabs.len() == 1 {
+                event_loop.exit();
+                return;
+            }
+            self.tabs.remove(tab_idx);
+            if self.active_tab >= self.tabs.len() {
+                self.active_tab = self.tabs.len() - 1;
+            }
+            return;
+        }
+        let tab = &mut self.tabs[tab_idx];
+        let new_focus = tab.layout.remove(pane_id);
+        tab.panes.remove(&pane_id);
+        if tab.active == pane_id {
+            tab.active = new_focus.unwrap_or_else(|| *tab.panes.keys().next().unwrap());
+        }
+        Self::sync_pane_sizes_tab(&mut self.tabs[tab_idx]);
     }
 
     // ── Resize ───────────────────────────────────────────────────────────────
@@ -450,8 +483,6 @@ impl App {
     // ── Render ────────────────────────────────────────────────────────────────
 
     fn redraw(&mut self) {
-        self.drain_all();
-
         if self.blink_last.elapsed() >= Duration::from_millis(self.config.window.cursor_blink_ms as u64) {
             self.blink_last = Instant::now();
             self.cursor_blink = !self.cursor_blink;
@@ -757,7 +788,13 @@ impl ApplicationHandler for App {
                 }
             }
 
-            WindowEvent::RedrawRequested => self.redraw(),
+            WindowEvent::RedrawRequested => {
+                let exited = self.drain_all();
+                for (tab_idx, pane_id) in exited {
+                    self.close_pane_on_tab(tab_idx, pane_id, event_loop);
+                }
+                self.redraw();
+            }
             _ => {}
         }
     }
