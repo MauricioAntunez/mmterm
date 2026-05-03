@@ -513,7 +513,8 @@ impl App {
             let show_cursor = is_active
                 && matches!(self.mode, InputMode::Insert)
                 && self.cursor_blink
-                && entry.pane.scroll_offset == 0;
+                && entry.pane.scroll_offset == 0
+                && entry.pane.parser.grid.cursor_visible;
             Some(PaneView {
                 grid: &entry.pane.parser.grid,
                 rect: *rect,
@@ -679,9 +680,11 @@ impl ApplicationHandler for App {
                         if let Some(text) = text {
                             let active = self.tab().active;
                             if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
-                                let mut data = b"\x1b[200~".to_vec();
+                                let bracketed = entry.pane.parser.grid.bracketed_paste;
+                                let mut data = Vec::new();
+                                if bracketed { data.extend_from_slice(b"\x1b[200~"); }
                                 data.extend_from_slice(text.as_bytes());
-                                data.extend_from_slice(b"\x1b[201~");
+                                if bracketed { data.extend_from_slice(b"\x1b[201~"); }
                                 let _ = entry.pty.write_input(&data);
                             }
                         } else {
