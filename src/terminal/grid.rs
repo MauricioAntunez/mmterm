@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 const SCROLLBACK_MAX: usize = 10_000;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -46,7 +48,7 @@ struct SavedScreen {
     fg: Color,
     bg: Color,
     bold: bool,
-    scrollback: Vec<Vec<Cell>>,
+    scrollback: VecDeque<Vec<Cell>>,
 }
 
 pub struct Grid {
@@ -62,7 +64,7 @@ pub struct Grid {
     pub bg: Color,
     pub bold: bool,
     // Scrollback: lines that have scrolled off the top (oldest first)
-    pub scrollback: Vec<Vec<Cell>>,
+    pub scrollback: VecDeque<Vec<Cell>>,
     // Theme colors
     pub default_fg: Color,
     pub default_bg: Color,
@@ -101,7 +103,7 @@ impl Grid {
             fg: default_fg,
             bg: default_bg,
             bold: false,
-            scrollback: Vec::new(),
+            scrollback: VecDeque::new(),
             default_fg,
             default_bg,
             cursor_color,
@@ -233,9 +235,9 @@ impl Grid {
                 let line: Vec<Cell> = (0..cols)
                     .map(|c| self.cells[top * cols + c].clone())
                     .collect();
-                self.scrollback.push(line);
+                self.scrollback.push_back(line);
                 if self.scrollback.len() > SCROLLBACK_MAX {
-                    self.scrollback.remove(0);
+                    self.scrollback.pop_front();
                 }
             }
             for r in top..bot {
@@ -245,6 +247,23 @@ impl Grid {
             }
             for c in 0..cols {
                 self.cells[bot * cols + c] = blank.clone();
+            }
+        }
+    }
+
+    pub fn scroll_down(&mut self, n: usize) {
+        let top = self.scroll_top;
+        let bot = self.scroll_bottom;
+        let cols = self.cols;
+        let blank = self.erase_cell();
+        for _ in 0..n {
+            for r in (top..bot).rev() {
+                for c in 0..cols {
+                    self.cells[(r + 1) * cols + c] = self.cells[r * cols + c].clone();
+                }
+            }
+            for c in 0..cols {
+                self.cells[top * cols + c] = blank.clone();
             }
         }
     }

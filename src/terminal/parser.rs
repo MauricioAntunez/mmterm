@@ -220,8 +220,27 @@ impl Perform for Performer<'_> {
                     i += 1;
                 }
             }
-            // Scroll up
+            // Scroll up / scroll down
             'S' => self.grid.scroll_up(p0.max(1) as usize),
+            'T' => self.grid.scroll_down(p0.max(1) as usize),
+            // Insert Line: insert n blank lines at cursor, shifting rest of scroll region down
+            'L' => {
+                let n = p0.max(1) as usize;
+                let saved_top = self.grid.scroll_top;
+                self.grid.scroll_top = self.grid.cursor_row;
+                self.grid.scroll_down(n);
+                self.grid.scroll_top = saved_top;
+                self.grid.cursor_col = 0;
+            }
+            // Delete Line: delete n lines at cursor, shifting rest of scroll region up
+            'M' => {
+                let n = p0.max(1) as usize;
+                let saved_top = self.grid.scroll_top;
+                self.grid.scroll_top = self.grid.cursor_row;
+                self.grid.scroll_up(n);
+                self.grid.scroll_top = saved_top;
+                self.grid.cursor_col = 0;
+            }
             // Set scroll region
             'r' => {
                 let top = p0.saturating_sub(1) as usize;
@@ -246,9 +265,11 @@ impl Perform for Performer<'_> {
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, byte: u8) {
         match byte {
             b'M' => {
-                // Reverse index
+                // Reverse index: move up, or scroll content down if at top of scroll region
                 if self.grid.cursor_row > self.grid.scroll_top {
                     self.grid.cursor_row -= 1;
+                } else {
+                    self.grid.scroll_down(1);
                 }
             }
             _ => {}
