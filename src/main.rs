@@ -18,9 +18,9 @@ use std::time::{Duration, Instant};
 use tui_config::{ConfigAction, ConfigPanel};
 use ui::{Layout, Pane, SplitDir};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, Modifiers, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, Modifiers, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
-use winit::window::{Window, WindowId};
+use winit::window::{CursorIcon, Window, WindowId};
 
 use crate::input::keybindings::Action;
 use crate::ui::layout::TAB_BAR_H;
@@ -316,6 +316,36 @@ impl App {
         }
     }
 
+    // ── Mouse reporting ──────────────────────────────────────────────────────
+
+    /// Returns the mouse_mode and mouse_sgr flags for the active pane.
+    fn active_mouse_mode(&self) -> (u16, bool) {
+        let active = self.tab().active;
+        self.tab().panes.get(&active)
+            .map(|e| (e.pane.parser.grid.mouse_mode, e.pane.parser.grid.mouse_sgr))
+            .unwrap_or((0, false))
+    }
+
+    /// Encode a mouse event and write it to the active pane's PTY.
+    /// `btn` is the X10 button code (0=left, 1=middle, 2=right, 32=motion).
+    /// `release` is only meaningful for non-SGR encoding.
+    fn send_mouse_event(&mut self, btn: u8, col: usize, row: usize, release: bool, sgr: bool) {
+        let active = self.tab().active;
+        let data = if sgr {
+            let suffix = if release { 'm' } else { 'M' };
+            format!("\x1b[<{};{};{}{}", btn, col + 1, row + 1, suffix).into_bytes()
+        } else {
+            // X10/normal encoding: clamped to 223 to fit in a byte
+            let b = (btn + 32).min(255);
+            let c = ((col + 1 + 32) as u8).min(255);
+            let r = ((row + 1 + 32) as u8).min(255);
+            vec![0x1b, b'[', b'M', b, c, r]
+        };
+        if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+            let _ = entry.pty.write_input(&data);
+        }
+    }
+
     // ── Mouse selection ───────────────────────────────────────────────────────
 
     fn pane_at_pixel(&self, px: f64, py: f64) -> Option<usize> {
@@ -358,6 +388,7 @@ impl App {
                     cur_row: row,
                 };
                 self.mouse_selecting = true;
+                if let Some(w) = &self.window { w.request_redraw(); }
             }
         }
     }
@@ -373,8 +404,9 @@ impl App {
 
     fn finish_mouse_selection(&mut self) {
         if let InputMode::Visual { start_col, start_row, cur_col, cur_row } = self.mode.clone() {
+            self.mode = InputMode::Insert;
             if start_col == cur_col && start_row == cur_row {
-                self.mode = InputMode::Insert;
+                if let Some(w) = &self.window { w.request_redraw(); }
                 return;
             }
             let active = self.tab().active;
@@ -393,6 +425,7 @@ impl App {
                 }
             }
         }
+        if let Some(w) = &self.window { w.request_redraw(); }
     }
 
     // ── Config panel ──────────────────────────────────────────────────────────
@@ -574,6 +607,7 @@ impl ApplicationHandler for App {
             ));
 
         let window = Arc::new(event_loop.create_window(attrs).unwrap());
+        window.set_cursor(CursorIcon::Text);
         let ctx = softbuffer::Context::new(window.clone()).unwrap();
         let surface = softbuffer::Surface::new(&ctx, window.clone()).unwrap();
 
@@ -761,12 +795,50 @@ impl ApplicationHandler for App {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_pos = Some((position.x, position.y));
-                if self.mouse_selecting {
+                let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
+                if mouse_mode >= 1002 {
+                    // Button-motion or any-motion: report if button is held (selecting) or always
+                    let report = mouse_mode >= 1003 || self.mouse_selecting;
+                    if report {
+                        let px = position.x;
+                        let py = position.y;
+                        let active = self.tab().active;
+                        if let Some((col, row)) = self.pixel_to_cell(active, px, py) {
+                            // btn 32 = motion with no button, 32 = left held already encoded as 32
+                            let btn = if self.mouse_selecting { 32 } else { 35 };
+                            self.send_mouse_event(btn, col, row, false, mouse_sgr);
+                        }
+                    }
+                } else if self.mouse_selecting {
                     self.update_mouse_selection(position.x, position.y);
+                    if let Some(w) = &self.window { w.request_redraw(); }
                 }
             }
 
             WindowEvent::MouseInput { state, button, .. } => {
+                let btn_code = match button {
+                    MouseButton::Left   => 0u8,
+                    MouseButton::Middle => 1u8,
+                    MouseButton::Right  => 2u8,
+                    _ => 3u8,
+                };
+                let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
+                if mouse_mode >= 1000 && btn_code < 3 {
+                    // Forward event to PTY
+                    if let Some((px, py)) = self.mouse_pos {
+                        let active = self.tab().active;
+                        if let Some((col, row)) = self.pixel_to_cell(active, px, py) {
+                            let release = state == ElementState::Released;
+                            self.send_mouse_event(btn_code, col, row, release, mouse_sgr);
+                        }
+                    }
+                    // Track left-button held state so motion reporting knows
+                    if button == MouseButton::Left {
+                        self.mouse_selecting = state == ElementState::Pressed;
+                    }
+                    return;
+                }
+
                 if button == MouseButton::Left {
                     match state {
                         ElementState::Pressed => {
@@ -796,6 +868,41 @@ impl ApplicationHandler for App {
                             }
                         }
                     }
+                }
+            }
+
+            WindowEvent::MouseWheel { delta, .. } => {
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as f32,
+                };
+                let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
+                if mouse_mode >= 1000 {
+                    // btn 64 = scroll up, 65 = scroll down
+                    let steps = lines.abs().ceil() as usize;
+                    let btn = if lines > 0.0 { 64u8 } else { 65u8 };
+                    if let Some((px, py)) = self.mouse_pos {
+                        let active = self.tab().active;
+                        if let Some((col, row)) = self.pixel_to_cell(active, px, py) {
+                            for _ in 0..steps.max(1) {
+                                self.send_mouse_event(btn, col, row, false, mouse_sgr);
+                            }
+                        }
+                    }
+                } else if lines > 0.0 {
+                    let n = lines.ceil() as usize;
+                    let active = self.tab().active;
+                    if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+                        entry.pane.scroll_up(n);
+                    }
+                    if let Some(w) = &self.window { w.request_redraw(); }
+                } else {
+                    let n = (-lines).ceil() as usize;
+                    let active = self.tab().active;
+                    if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+                        entry.pane.scroll_down(n);
+                    }
+                    if let Some(w) = &self.window { w.request_redraw(); }
                 }
             }
 

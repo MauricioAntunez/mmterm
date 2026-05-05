@@ -77,6 +77,10 @@ pub struct Grid {
     pub cursor_visible: bool,
     // Bracketed paste mode (?2004)
     pub bracketed_paste: bool,
+    // Mouse reporting mode: 0=off, 1000=click, 1002=button-motion, 1003=any-motion
+    pub mouse_mode: u16,
+    // SGR extended mouse encoding (?1006)
+    pub mouse_sgr: bool,
     // Alternate screen buffer (?1049): holds saved primary screen while in alt screen
     alternate_saved: Option<SavedScreen>,
 }
@@ -112,6 +116,8 @@ impl Grid {
             application_cursor_keys: false,
             cursor_visible: true,
             bracketed_paste: false,
+            mouse_mode: 0,
+            mouse_sgr: false,
             alternate_saved: None,
         }
     }
