@@ -30,6 +30,9 @@ pub enum Action {
     IncreaseFontSize,
     DecreaseFontSize,
     ResetFontSize,
+    SearchOpen,
+    SearchNext,
+    SearchPrev,
     Quit,
     None,
 }
@@ -69,7 +72,7 @@ pub fn handle_key(
                     InputMode::Normal    => InputMode::Visual {
                         start_col: 0, start_row: 0, cur_col: 0, cur_row: 0,
                     },
-                    InputMode::Visual { .. } | InputMode::RenameTab { .. } => InputMode::Insert,
+                    InputMode::Visual { .. } | InputMode::RenameTab { .. } | InputMode::Search { .. } => InputMode::Insert,
                 };
                 return Action::SetMode(next);
             }
@@ -141,6 +144,7 @@ pub fn handle_key(
             handle_visual(event, *start_col, *start_row, *cur_col, *cur_row, grid_cols, grid_rows)
         }
         InputMode::RenameTab { .. } => Action::None,
+        InputMode::Search { .. } => Action::None,
     }
 }
 
@@ -222,6 +226,9 @@ fn handle_normal(event: &KeyEvent, _ctrl: bool) -> Action {
                 start_col: 0, start_row: 0, cur_col: 0, cur_row: 0,
             }),
             "q" => return Action::ClosePane,
+            "/" => return Action::SearchOpen,
+            "n" => return Action::SearchNext,
+            "N" => return Action::SearchPrev,
             _ => {}
         },
         _ => {}

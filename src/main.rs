@@ -66,6 +66,8 @@ struct App {
     mouse_selecting: bool,
     proxy: EventLoopProxy<()>,
     surface_size: (u32, u32),
+    search_matches: Vec<(usize, usize)>,
+    search_current: usize,
 }
 
 impl App {
@@ -90,6 +92,8 @@ impl App {
             mouse_selecting: false,
             proxy,
             surface_size: (0, 0),
+            search_matches: Vec::new(),
+            search_current: 0,
         }
     }
 
@@ -442,6 +446,122 @@ impl App {
         log::info!("Tab {} font size: {current} → {new_size}", idx + 1);
     }
 
+    // ── Search ────────────────────────────────────────────────────────────────
+
+    fn handle_search_key(&mut self, event: &winit::event::KeyEvent) {
+        use winit::keyboard::{Key, NamedKey};
+        let query = if let InputMode::Search { query } = &self.mode {
+            query.clone()
+        } else {
+            return;
+        };
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.mode = InputMode::Normal;
+            }
+            Key::Named(NamedKey::Enter) => {
+                if !self.search_matches.is_empty() {
+                    let next = (self.search_current + 1) % self.search_matches.len();
+                    self.scroll_to_match(next);
+                }
+            }
+            Key::Named(NamedKey::Backspace) => {
+                let mut q = query;
+                q.pop();
+                self.mode = InputMode::Search { query: q };
+                self.update_search_matches();
+            }
+            Key::Character(s) => {
+                let mut q = query;
+                q.push_str(s);
+                self.mode = InputMode::Search { query: q };
+                self.update_search_matches();
+            }
+            _ => {}
+        }
+    }
+
+    fn update_search_matches(&mut self) {
+        let query_chars: Vec<char> = match &self.mode {
+            InputMode::Search { query } => query.chars().collect(),
+            _ => return,
+        };
+
+        self.search_matches.clear();
+        self.search_current = 0;
+
+        if query_chars.is_empty() {
+            return;
+        }
+
+        let tab_idx = self.active_tab;
+        let active = self.tabs[tab_idx].active;
+
+        let matches: Vec<(usize, usize)> = {
+            if let Some(entry) = self.tabs[tab_idx].panes.get(&active) {
+                let grid = &entry.pane.parser.grid;
+                let sb_len = grid.scrollback.len();
+                let qlen = query_chars.len();
+                let mut m: Vec<(usize, usize)> = Vec::new();
+
+                for (abs_row, line) in grid.scrollback.iter().enumerate() {
+                    let text: Vec<char> = line.iter().map(|c| c.c).collect();
+                    for (col, window) in text.windows(qlen).enumerate() {
+                        if window == query_chars.as_slice() {
+                            m.push((abs_row, col));
+                        }
+                    }
+                }
+
+                for row in 0..grid.rows {
+                    let abs_row = sb_len + row;
+                    let text: Vec<char> = (0..grid.cols).map(|c| grid.cell(c, row).c).collect();
+                    for (col, window) in text.windows(qlen).enumerate() {
+                        if window == query_chars.as_slice() {
+                            m.push((abs_row, col));
+                        }
+                    }
+                }
+
+                m
+            } else {
+                Vec::new()
+            }
+        };
+
+        self.search_matches = matches;
+
+        if !self.search_matches.is_empty() {
+            self.scroll_to_match(0);
+        }
+    }
+
+    fn scroll_to_match(&mut self, idx: usize) {
+        if idx >= self.search_matches.len() {
+            return;
+        }
+        self.search_current = idx;
+        let (abs_row, _) = self.search_matches[idx];
+
+        let tab_idx = self.active_tab;
+        let active = self.tabs[tab_idx].active;
+
+        let (sb_len, grid_rows) = self.tabs[tab_idx].panes.get(&active)
+            .map(|e| (e.pane.parser.grid.scrollback.len(), e.pane.parser.grid.rows))
+            .unwrap_or((0, 24));
+
+        let new_offset = if abs_row >= sb_len {
+            0
+        } else {
+            let target_row = grid_rows / 2;
+            (sb_len + target_row).saturating_sub(abs_row).min(sb_len)
+        };
+
+        if let Some(entry) = self.tabs[tab_idx].panes.get_mut(&active) {
+            entry.pane.scroll_offset = new_offset;
+        }
+    }
+
     fn open_config_panel(&mut self) {
         self.config_panel = Some(ConfigPanel::from_config(&self.config));
     }
@@ -549,20 +669,36 @@ impl App {
         let rects = tab.layout.rects();
         let separators = tab.layout.separators();
 
+        let active_id = tab.active;
+        let search_match_len = match &self.mode {
+            InputMode::Search { query } => query.chars().count(),
+            _ => 0,
+        };
+        let search_matches = &self.search_matches;
+        let search_current_val = self.search_current;
+
         let views: Vec<PaneView> = rects.iter().filter_map(|(id, rect)| {
             let entry = tab.panes.get(id)?;
-            let is_active = *id == tab.active;
+            let is_active = *id == active_id;
             let show_cursor = is_active
                 && matches!(self.mode, InputMode::Insert)
                 && self.cursor_blink
                 && entry.pane.scroll_offset == 0
                 && entry.pane.parser.grid.cursor_visible;
+            let (sm, sc) = if is_active && search_match_len > 0 {
+                (search_matches.as_slice(), Some(search_current_val))
+            } else {
+                (&[][..], None)
+            };
             Some(PaneView {
                 grid: &entry.pane.parser.grid,
                 rect: *rect,
                 scroll_offset: entry.pane.scroll_offset,
                 is_active,
                 show_cursor,
+                search_matches: sm,
+                search_match_len,
+                search_current: sc,
             })
         }).collect();
 
@@ -587,7 +723,7 @@ impl App {
             .collect();
 
         let metrics = self.tabs[self.active_tab].metrics.clone();
-        self.renderer.draw(pixels, w, h, &views, &separators, &self.mode, &tab_titles, &metrics);
+        self.renderer.draw(pixels, w, h, &views, &separators, &self.mode, &tab_titles, &metrics, self.search_matches.len(), self.search_current);
 
         if let Some(panel) = &self.config_panel {
             self.renderer.draw_config_panel(pixels, w, h, panel);
@@ -644,6 +780,12 @@ impl ApplicationHandler for App {
 
                 if matches!(self.mode, InputMode::RenameTab { .. }) {
                     self.handle_rename_key(&event);
+                    return;
+                }
+
+                if matches!(self.mode, InputMode::Search { .. }) {
+                    self.handle_search_key(&event);
+                    if let Some(w) = &self.window { w.request_redraw(); }
                     return;
                 }
 
@@ -777,6 +919,28 @@ impl ApplicationHandler for App {
                         let current = self.tabs[self.active_tab].name.clone()
                             .unwrap_or_default();
                         self.mode = InputMode::RenameTab { buf: current };
+                    }
+
+                    Action::SearchOpen => {
+                        self.search_matches.clear();
+                        self.search_current = 0;
+                        self.mode = InputMode::Search { query: String::new() };
+                    }
+                    Action::SearchNext => {
+                        if !self.search_matches.is_empty() {
+                            let next = (self.search_current + 1) % self.search_matches.len();
+                            self.scroll_to_match(next);
+                        }
+                    }
+                    Action::SearchPrev => {
+                        if !self.search_matches.is_empty() {
+                            let prev = if self.search_current == 0 {
+                                self.search_matches.len() - 1
+                            } else {
+                                self.search_current - 1
+                            };
+                            self.scroll_to_match(prev);
+                        }
                     }
 
                     Action::IncreaseFontSize => self.change_font_size(1.0),

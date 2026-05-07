@@ -22,6 +22,19 @@ Full spec: `doc/SPEC.md`. This file is the dense implementation reference.
 
 Constants in `src/ui/layout.rs`: `TAB_BAR_H = 22`, `STATUS_BAR_H = 22`.
 
+## Scrollback Search (implemented)
+
+- `InputMode::Search { query: String }` — entered from Normal with `/`
+- `App.search_matches: Vec<(usize, usize)>` — `(abs_row, start_col)` sorted by abs_row
+- `App.search_current: usize` — index of highlighted match
+- `abs_row` coordinate space: `0..sb_len` = scrollback, `sb_len..sb_len+grid.rows` = live grid
+- `App::update_search_matches` recomputes on every query keystroke (char-based windows scan)
+- `App::scroll_to_match(idx)` sets `pane.scroll_offset = (sb_len + grid_rows/2).saturating_sub(abs_row).min(sb_len)`
+- `PaneView` carries `search_matches`, `search_match_len`, `search_current` to the renderer
+- `draw_pane` uses binary-search (`partition_point`) to find the row's match range, then linear scan per cell
+- Match highlight: yellow bg `#f9e2af`; current match: orange bg `#fe640d`; both use dark fg `#11111d`
+- Status bar shows `/query  [current/total]` when in Search mode
+
 ## Core Types (abbreviated)
 
 ```rust
@@ -85,6 +98,7 @@ pub enum Action {
     CtrlWPrefix, OpenConfig,
     NewTab, NextTab, PrevTab, CloseTab, RenameTab,
     IncreaseFontSize, DecreaseFontSize, ResetFontSize,
+    SearchOpen, SearchNext, SearchPrev,
     Quit, None,
 }
 ```

@@ -9,12 +9,20 @@ const STATUS_BAR_H: u32 = 22;
 const BADGE_PAD_X: u32 = 8;
 const SEP_COLOR: u32 = 0xFF_31_32_44;
 
+const SEARCH_MATCH_BG: Color = Color::rgb(0xf9, 0xe2, 0xaf);
+const SEARCH_CURRENT_BG: Color = Color::rgb(0xfe, 0x64, 0x0d);
+const SEARCH_MATCH_FG: Color = Color::rgb(0x11, 0x11, 0x1d);
+
 pub struct PaneView<'a> {
     pub grid: &'a Grid,
     pub rect: [u32; 4],
     pub scroll_offset: usize,
     pub is_active: bool,
     pub show_cursor: bool,
+    /// Match positions (abs_row, start_col) sorted by abs_row. abs_row = scrollback_len + grid_row.
+    pub search_matches: &'a [(usize, usize)],
+    pub search_match_len: usize,
+    pub search_current: Option<usize>,
 }
 
 /// Cell layout metrics derived from a specific font size.
@@ -76,6 +84,8 @@ impl Renderer {
         mode: &InputMode,
         tab_titles: &[(String, bool)],
         metrics: &FontMetrics,
+        search_total: usize,
+        search_current: usize,
     ) {
         let bg_fill = panes.first().map(|p| p.grid.default_bg).unwrap_or(Color::BLACK);
         buf.fill(color_u32(bg_fill));
@@ -101,7 +111,7 @@ impl Renderer {
         // (top-edge highlight removed — tab bar serves that role)
 
         self.draw_tab_bar(buf, buf_width, tab_titles);
-        self.draw_status_bar(buf, buf_width, buf_height, mode);
+        self.draw_status_bar(buf, buf_width, buf_height, mode, search_total, search_current);
     }
 
     fn draw_pane(&mut self, buf: &mut [u32], buf_width: u32, pane: &PaneView, mode: &InputMode, m: &FontMetrics) {
@@ -119,8 +129,15 @@ impl Renderer {
             None
         };
 
+        let sb_len = grid.scrollback.len();
+
         let mut row = 0usize;
         while row < grid.rows {
+            // Absolute row in the combined scrollback+grid address space.
+            let abs_row = sb_len.saturating_sub(pane.scroll_offset) + row;
+            // Binary-search lower bound for this row's matches (matches are sorted by abs_row).
+            let row_match_lo = pane.search_matches.partition_point(|&(r, _)| r < abs_row);
+
             let mut col = 0usize;
             while col < grid.cols {
                 let cell = get_cell(grid, pane.scroll_offset, row, col);
@@ -151,14 +168,43 @@ impl Renderer {
                         && (row < r1 || (row == r1 && col <= c1))
                 });
 
+                // Search highlight: scan matches for this abs_row.
+                let (in_match, is_current_match) = if pane.search_match_len > 0 {
+                    let mut found = false;
+                    let mut current = false;
+                    let mut i = row_match_lo;
+                    while i < pane.search_matches.len() && pane.search_matches[i].0 == abs_row {
+                        let mc = pane.search_matches[i].1;
+                        if col >= mc && col < mc + pane.search_match_len {
+                            found = true;
+                            current = pane.search_current == Some(i);
+                            break;
+                        }
+                        i += 1;
+                    }
+                    (found, current)
+                } else {
+                    (false, false)
+                };
+
                 let bg = if is_cursor {
                     grid.cursor_color
+                } else if is_current_match {
+                    SEARCH_CURRENT_BG
+                } else if in_match {
+                    SEARCH_MATCH_BG
                 } else if is_selected {
                     grid.selection_color
                 } else {
                     cell.bg
                 };
-                let fg = if is_cursor { Color::BLACK } else { cell.fg };
+                let fg = if is_cursor {
+                    Color::BLACK
+                } else if in_match {
+                    SEARCH_MATCH_FG
+                } else {
+                    cell.fg
+                };
                 let bg32 = color_u32(bg);
 
                 for dy in 0..m.cell_height {
@@ -418,7 +464,7 @@ impl Renderer {
         }
     }
 
-    fn draw_status_bar(&mut self, buf: &mut [u32], width: u32, height: u32, mode: &InputMode) {
+    fn draw_status_bar(&mut self, buf: &mut [u32], width: u32, height: u32, mode: &InputMode, search_total: usize, search_current: usize) {
         let bar_y = height.saturating_sub(STATUS_BAR_H);
         let bar_bg = 0xFF_18_18_25_u32;
 
@@ -469,6 +515,18 @@ impl Renderer {
             }
             text_x += char_w;
         }
+
+        // Show search query and match count next to the badge.
+        if let InputMode::Search { query } = mode {
+            let info = if query.is_empty() {
+                "/".to_string()
+            } else if search_total == 0 {
+                format!("/{query}  [no matches]")
+            } else {
+                format!("/{query}  [{}/{}]", search_current + 1, search_total)
+            };
+            self.draw_str(buf, width, height, badge_x + badge_w + 10, badge_y + 2, &info, px, false, 0xFF_ba_c2_de);
+        }
     }
 }
 
@@ -497,6 +555,7 @@ fn mode_style(mode: &InputMode) -> (&'static str, u32) {
         InputMode::Insert => ("INSERT", 0xFF_a6_e3_a1),
         InputMode::Visual { .. } => ("VISUAL", 0xFF_cb_a6_f7),
         InputMode::RenameTab { .. } => ("RENAME", 0xFF_f9_e2_af),
+        InputMode::Search { .. } => ("SEARCH", 0xFF_f9_e2_af),
     }
 }
 

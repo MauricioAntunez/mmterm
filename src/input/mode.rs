@@ -11,4 +11,6 @@ pub enum InputMode {
     },
     /// Inline tab-rename: buf holds the name being typed
     RenameTab { buf: String },
+    /// Scrollback search: query holds the pattern being typed
+    Search { query: String },
 }

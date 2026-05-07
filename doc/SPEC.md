@@ -23,7 +23,7 @@ vim-style modal input, split panes, and multi-tab sessions.
 │  │     └── active pane id                            │
 │  ├── Renderer  (shared glyph cache)                  │
 │  ├── Config    (loaded from TOML)                    │
-│  └── InputMode (Insert / Normal / Visual)            │
+│  └── InputMode (Insert / Normal / Visual / Search)   │
 └────────────┬─────────────────────────────────────────┘
              │ winit events
     ┌────────▼────────┐     ┌──────────────────────────┐
@@ -84,7 +84,7 @@ vim-style modal input, split panes, and multi-tab sessions.
 - Baseline alignment per glyph using fontdue `ymin` metric.
 
 ### Input
-- Three modal modes: **Insert** (default), **Normal**, **Visual**.
+- Four modal modes: **Insert** (default), **Normal**, **Visual**, **Search**.
 - Mode cycle: `Ctrl+.` (Insert → Normal → Visual → Insert).
 - `Ctrl+\` as alternative entry to Normal mode.
 - Escape is always forwarded to the PTY — vim, less, etc. work as expected.
@@ -116,6 +116,22 @@ vim-style modal input, split panes, and multi-tab sessions.
 - `Shift+PageUp` / `Shift+PageDown` — scroll half a screen.
 - `Ctrl+Shift+↑` / `Ctrl+Shift+↓` — scroll one line.
 - `Ctrl+Shift+Home` / `Ctrl+Shift+End` — jump to top / bottom.
+
+### Scrollback Search
+- Enter Search mode from Normal mode with `/`.
+- Type a pattern to search; matches update live as you type.
+- All matches are highlighted in yellow; the current match is highlighted in orange.
+- The status bar shows the query and match count: `/pattern  [2/12]`.
+- `Enter` — navigate to the next match (wraps around).
+- `Escape` — return to Normal mode; matches remain visible for `n`/`N` navigation.
+- `Backspace` — delete the last character of the query.
+- `n` (Normal mode) — next match.
+- `N` (Normal mode) — previous match.
+- The view scrolls automatically to center the current match.
+- Search covers the full 10 000-line scrollback buffer and the live screen.
+- Match coordinates are stored as `(abs_row, start_col)` where
+  `abs_row ∈ [0, scrollback_len)` is a scrollback line and
+  `abs_row ∈ [scrollback_len, scrollback_len + grid.rows)` is a live grid row.
 
 ### Configuration
 - TOML file at `$XDG_CONFIG_HOME/mmterm/config.toml`
@@ -188,7 +204,19 @@ vim-style modal input, split panes, and multi-tab sessions.
 |---|---|
 | `i` / `Escape` | Return to Insert mode |
 | `v` | Enter Visual mode |
+| `/` | Enter Search mode |
+| `n` | Next search match |
+| `N` | Previous search match |
 | `q` | Quit |
+
+### Search Mode
+
+| Key | Action |
+|---|---|
+| _any character_ | Append to search query (live search) |
+| `Backspace` | Delete last character |
+| `Enter` | Next match |
+| `Escape` | Return to Normal mode (matches remain for `n`/`N`) |
 
 ### Visual Mode
 
