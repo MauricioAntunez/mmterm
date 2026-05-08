@@ -1,5 +1,7 @@
 # mmterm
 
+<img src="assets/icon.svg" alt="mmterm icon" width="128"/>
+
 A cross-platform, GPU-free terminal emulator written in Rust with vim-style modal input, split panes, and multi-tab sessions.
 
 Renders entirely via a CPU pixel buffer — no GPU, no OpenGL, no Vulkan.
