@@ -45,6 +45,8 @@ struct TabState {
     name: Option<String>,
     /// Temporary full-screen zoom of the active pane
     zoomed: bool,
+    /// True when PTY output arrived while this tab was not active
+    has_activity: bool,
 }
 
 // ── App ──────────────────────────────────────────────────────────────────────
@@ -167,6 +169,7 @@ impl App {
             metrics,
             name: None,
             zoomed: false,
+            has_activity: false,
         });
         let id = self.spawn_pane_into(tab_idx, initial_rect, cwd);
         self.tabs[tab_idx].layout = Layout::new(id, win_w, win_h);
@@ -203,20 +206,25 @@ impl App {
     /// Drain all pending PTY output and return (tab_idx, pane_id) pairs for
     /// any panes whose PTY process has exited (sender disconnected).
     fn drain_all(&mut self) -> Vec<(usize, usize)> {
+        let active_tab = self.active_tab;
         let mut exited = Vec::new();
         for (tab_idx, tab) in self.tabs.iter_mut().enumerate() {
             let ids: Vec<usize> = tab.panes.keys().copied().collect();
             for id in ids {
                 let entry = tab.panes.get_mut(&id).unwrap();
+                let mut got_data = false;
                 loop {
                     match entry.rx.try_recv() {
-                        Ok(bytes) => entry.pane.process(&bytes),
+                        Ok(bytes) => { entry.pane.process(&bytes); got_data = true; }
                         Err(crossbeam_channel::TryRecvError::Empty) => break,
                         Err(crossbeam_channel::TryRecvError::Disconnected) => {
                             exited.push((tab_idx, id));
                             break;
                         }
                     }
+                }
+                if got_data && tab_idx != active_tab {
+                    tab.has_activity = true;
                 }
             }
         }
@@ -699,6 +707,8 @@ impl App {
 
         if self.tabs.is_empty() { buf.present().unwrap(); return; }
 
+        self.tabs[self.active_tab].has_activity = false;
+
         let tab = &self.tabs[self.active_tab];
         let rects = tab.layout.rects();
         let separators = tab.layout.separators();
@@ -764,7 +774,7 @@ impl App {
             }).collect()
         };
 
-        let tab_titles: Vec<(String, bool)> = self.tabs.iter().enumerate()
+        let tab_titles: Vec<(String, bool, bool)> = self.tabs.iter().enumerate()
             .map(|(i, tab)| {
                 let is_active = i == self.active_tab;
                 let label = if is_active {
@@ -780,7 +790,7 @@ impl App {
                         .map(|n| format!(" {} ", n))
                         .unwrap_or_else(|| format!(" {} ", i + 1))
                 };
-                (label, is_active)
+                (label, is_active, tab.has_activity)
             })
             .collect();
 
@@ -844,6 +854,10 @@ impl ApplicationHandler for App {
 
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed { return; }
+
+                // Reset blink on every keypress so cursor is always visible after input.
+                self.cursor_blink = true;
+                self.blink_last = Instant::now();
 
                 if self.config_panel.is_some() {
                     self.handle_config_key(&event);

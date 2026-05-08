@@ -83,7 +83,7 @@ impl Renderer {
         panes: &[PaneView],
         separators: &[[u32; 4]],
         mode: &InputMode,
-        tab_titles: &[(String, bool)],
+        tab_titles: &[(String, bool, bool)],
         metrics: &FontMetrics,
         search_total: usize,
         search_current: usize,
@@ -298,7 +298,7 @@ impl Renderer {
         }
     }
 
-    fn draw_tab_bar(&mut self, buf: &mut [u32], width: u32, tabs: &[(String, bool)]) {
+    fn draw_tab_bar(&mut self, buf: &mut [u32], width: u32, tabs: &[(String, bool, bool)]) {
         let bar_bg  = 0xFF_11_11_1d_u32;
         let sep_col = 0xFF_31_32_44_u32;
         let fp = self.status_font_px;
@@ -319,7 +319,7 @@ impl Renderer {
         }
 
         let mut cursor_x = 4u32;
-        for (label, is_active) in tabs {
+        for (label, is_active, has_activity) in tabs {
             let tab_w = label.len() as u32 * cw + 12;
             let (badge_bg, text_color) = if *is_active {
                 (0xFF_89_b4_fa_u32, 0xFF_11_11_1d_u32)
@@ -337,6 +337,21 @@ impl Renderer {
 
             // Label
             self.draw_str(buf, width, TAB_BAR_H, cursor_x + 6, 2, label, fp, *is_active, text_color);
+
+            // Activity dot: small filled square in the top-right corner of the badge
+            if *has_activity && !*is_active {
+                const DOT: u32 = 4;
+                let dot_color = 0xFF_f3_8b_a8_u32; // pink
+                let dot_x = cursor_x + tab_w.saturating_sub(DOT + 3);
+                let dot_y = 4u32;
+                for dy in 0..DOT {
+                    for dx in 0..DOT {
+                        let idx = ((dot_y + dy) * width + dot_x + dx) as usize;
+                        if idx < buf.len() { buf[idx] = dot_color; }
+                    }
+                }
+            }
+
             cursor_x += tab_w + 2;
         }
     }
