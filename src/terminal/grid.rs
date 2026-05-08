@@ -386,3 +386,7 @@ impl Grid {
         self.cells = vec![blank; self.cols * self.rows];
     }
 }
+
+#[cfg(test)]
+#[path = "grid_tests.rs"]
+mod tests;

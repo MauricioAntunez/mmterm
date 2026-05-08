@@ -143,3 +143,7 @@ fn config_path() -> PathBuf {
         .join("mmterm")
         .join("config.toml")
 }
+
+#[cfg(test)]
+#[path = "config_tests.rs"]
+mod tests;

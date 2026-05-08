@@ -202,3 +202,7 @@ impl Layout {
         best.map(|(id, _)| id)
     }
 }
+
+#[cfg(test)]
+#[path = "layout_tests.rs"]
+mod tests;

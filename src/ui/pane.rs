@@ -48,3 +48,7 @@ impl Pane {
         self.scroll_offset = 0;
     }
 }
+
+#[cfg(test)]
+#[path = "pane_tests.rs"]
+mod tests;
