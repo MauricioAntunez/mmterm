@@ -553,3 +553,44 @@ fn color256_rgb_cube() {
     // index 231 = last cube entry = r=5,g=5,b=5 → f(5)=55+5*40=255
     assert_eq!(color256(231, &palette), Color::rgb(255, 255, 255));
 }
+
+// ── SGR reset (code 0) inside multi-param sequence ───────────────────────────
+
+#[test]
+fn sgr_reset_code_zero_in_multi_param_sequence() {
+    let mut p = make_parser(10, 5);
+    p.process(b"\x1b[1;0;4m"); // bold, then reset (0), then underline
+    assert!(!p.grid.bold);      // reset cleared bold
+    assert!(p.grid.underline);  // underline set after reset
+}
+
+// ── Scroll region with single param (p1 defaults to rows-1) ──────────────────
+
+#[test]
+fn scroll_region_single_param_uses_full_height() {
+    let mut p = make_parser(10, 10);
+    p.process(b"\x1b[3r"); // top=3, no bottom param → bottom=rows-1
+    assert_eq!(p.grid.scroll_top, 2);
+    assert_eq!(p.grid.scroll_bottom, 9);
+}
+
+// ── ESC M: reverse index ──────────────────────────────────────────────────────
+
+#[test]
+fn reverse_index_moves_cursor_up() {
+    let mut p = make_parser(10, 5);
+    p.grid.cursor_row = 2;
+    p.process(b"\x1bM");
+    assert_eq!(p.grid.cursor_row, 1);
+}
+
+#[test]
+fn reverse_index_at_scroll_top_scrolls_content_down() {
+    let mut p = make_parser(10, 5);
+    p.process(b"AAAAA");
+    p.grid.cursor_row = 0;
+    p.grid.cursor_col = 0;
+    p.process(b"\x1bM"); // at scroll_top → scroll_down(1)
+    assert_eq!(p.grid.cell(0, 1).c, 'A');
+    assert_eq!(p.grid.cell(0, 0).c, ' ');
+}

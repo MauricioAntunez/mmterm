@@ -257,3 +257,7 @@ fn normalize_hex(s: &str) -> String {
     let s = s.trim_start_matches('#');
     format!("#{}", s.to_uppercase())
 }
+
+#[cfg(test)]
+#[path = "tui_config_tests.rs"]
+mod tests;

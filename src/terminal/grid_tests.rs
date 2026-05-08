@@ -134,3 +134,53 @@ fn scrollback_len_increments_on_scroll_up() {
     g.scroll_up(2);
     assert_eq!(g.scrollback_len(), 3);
 }
+
+#[test]
+fn write_wide_char_occupies_two_columns() {
+    let mut g = make_grid(10, 5);
+    g.write_char('日'); // unicode width 2
+    assert_eq!(g.cell(0, 0).c, '日');
+    assert!(g.cell(0, 0).wide);
+    assert!(g.cell(1, 0).wide_cont);
+    assert_eq!(g.cursor_col, 2);
+}
+
+#[test]
+fn scroll_up_within_region_does_not_push_to_scrollback() {
+    let mut g = make_grid(5, 5);
+    g.scroll_top = 2;
+    g.scroll_bottom = 4;
+    g.cursor_row = 2;
+    g.write_char('X');
+    g.scroll_up(1);
+    assert_eq!(g.scrollback_len(), 0);
+}
+
+#[test]
+fn selected_text_multi_row_joins_with_newline() {
+    let mut g = make_grid(10, 5);
+    g.write_char('A');
+    g.cursor_col = 0;
+    g.cursor_row = 1;
+    g.write_char('B');
+    let text = g.selected_text(0, 0, 0, 1);
+    assert_eq!(text, "A\nB");
+}
+
+#[test]
+fn in_alternate_screen_reflects_state() {
+    let mut g = make_grid(10, 5);
+    assert!(!g.in_alternate_screen());
+    g.enter_alternate_screen();
+    assert!(g.in_alternate_screen());
+    g.exit_alternate_screen();
+    assert!(!g.in_alternate_screen());
+}
+
+#[test]
+fn exit_alternate_screen_when_not_active_is_noop() {
+    let mut g = make_grid(10, 5);
+    g.write_char('A');
+    g.exit_alternate_screen(); // not in alt screen — should not panic
+    assert_eq!(g.cell(0, 0).c, 'A');
+}

@@ -86,6 +86,13 @@ fn individual_default_impls() {
 }
 
 #[test]
+fn write_default_if_missing_does_not_panic() {
+    // If file exists → returns early (line 134). If not → creates it.
+    // Either path should not panic.
+    Config::write_default_if_missing();
+}
+
+#[test]
 fn load_falls_back_to_defaults_when_no_file() {
     // In a test environment there's no ~/.config/mmterm/config.toml;
     // load() should return defaults without panicking.

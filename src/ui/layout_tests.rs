@@ -148,3 +148,64 @@ fn nested_split_has_three_panes() {
     assert_eq!(layout.leaves().len(), 3);
     assert_eq!(layout.separators().len(), 2);
 }
+
+#[test]
+fn remove_inner_pane_from_a_subtree() {
+    // Build: Split{ Split{Leaf(0), Leaf(2)}, Leaf(1) }
+    // Removing pane 2 triggers Replace result on the a subtree (lines 100-101)
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.split(0, 2, SplitDir::V);
+    let sibling = layout.remove(2);
+    assert_eq!(sibling, Some(0));
+    assert!(layout.leaves().contains(&0));
+    assert!(!layout.leaves().contains(&2));
+}
+
+#[test]
+fn remove_inner_pane_from_b_subtree() {
+    // Build: Split{ Leaf(0), Split{Leaf(1), Leaf(2)} }
+    // Removing pane 2 triggers Replace result on the b subtree (lines 106-107)
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.split(1, 2, SplitDir::V);
+    let sibling = layout.remove(2);
+    assert_eq!(sibling, Some(0));
+    assert!(layout.leaves().contains(&1));
+    assert!(!layout.leaves().contains(&2));
+}
+
+#[test]
+fn remove_nonexistent_pane_leaves_layout_unchanged() {
+    // a.remove_leaf → NotFound, b.remove_leaf → NotFound → hits `r => r` catch-all (line 107)
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    let _ = layout.remove(99); // pane 99 doesn't exist
+    assert_eq!(layout.leaves().len(), 2);
+}
+
+#[test]
+fn remove_deeply_nested_pane_propagates_done() {
+    // 4-pane tree: Split{ Split{Split{Leaf(0),Leaf(3)}, Leaf(2)}, Leaf(1) }
+    // Removing pane 3: inner Replace bubbles up as Done to the root match → line 101
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.split(0, 2, SplitDir::V);
+    layout.split(0, 3, SplitDir::H);
+    let _ = layout.remove(3);
+    assert!(!layout.leaves().contains(&3));
+    assert!(layout.leaves().contains(&0));
+    assert_eq!(layout.leaves().len(), 3);
+}
+
+#[test]
+fn focus_dir_updates_best_when_closer_candidate_found() {
+    // Build: Split{ Split{Leaf(0), Leaf(2)}, Leaf(1) } (V splits)
+    // Pane 0 = top quarter, pane 2 = middle quarter, pane 1 = bottom half
+    // From pane 1 looking up: first finds pane 0, then finds pane 2 (closer) → line 197
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::V);
+    layout.split(0, 2, SplitDir::V);
+    let result = layout.focus_dir(1, 0, -1);
+    assert_eq!(result, Some(2)); // pane 2 is closer than pane 0
+}
