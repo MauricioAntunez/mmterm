@@ -131,8 +131,8 @@ pub fn handle_key(
 
     if shift && !ctrl {
         match &event.logical_key {
-            Key::Named(NamedKey::PageUp)   => return Action::ScrollUp(grid_rows / 2),
-            Key::Named(NamedKey::PageDown) => return Action::ScrollDown(grid_rows / 2),
+            Key::Named(NamedKey::PageUp)   => return Action::ScrollUp(grid_rows),
+            Key::Named(NamedKey::PageDown) => return Action::ScrollDown(grid_rows),
             _ => {}
         }
     }
@@ -140,7 +140,7 @@ pub fn handle_key(
     // ── Per-mode handling ────────────────────────────────────────────────
     match mode {
         InputMode::Insert => handle_insert(event, ctrl, application_cursor_keys),
-        InputMode::Normal => handle_normal(event, ctrl),
+        InputMode::Normal => handle_normal(event, ctrl, grid_rows),
         InputMode::Visual { start_col, start_row, cur_col, cur_row } => {
             handle_visual(event, *start_col, *start_row, *cur_col, *cur_row, grid_cols, grid_rows)
         }
@@ -216,12 +216,14 @@ fn handle_insert(event: &KeyEvent, ctrl: bool, application_cursor_keys: bool) ->
     }
 }
 
-fn handle_normal(event: &KeyEvent, _ctrl: bool) -> Action {
+fn handle_normal(event: &KeyEvent, _ctrl: bool, grid_rows: usize) -> Action {
     // Escape or i → return to Insert (and send Escape to PTY)
     match &event.logical_key {
         Key::Named(NamedKey::Escape) => {
             return Action::SetMode(InputMode::Insert);
         }
+        Key::Named(NamedKey::PageUp)   => return Action::ScrollUp(grid_rows),
+        Key::Named(NamedKey::PageDown) => return Action::ScrollDown(grid_rows),
         Key::Character(s) => match s.as_str() {
             "i" => return Action::SetMode(InputMode::Insert),
             "v" => return Action::SetMode(InputMode::Visual {
@@ -231,6 +233,8 @@ fn handle_normal(event: &KeyEvent, _ctrl: bool) -> Action {
             "/" => return Action::SearchOpen,
             "n" => return Action::SearchNext,
             "N" => return Action::SearchPrev,
+            "j" => return Action::ScrollDown(3),
+            "k" => return Action::ScrollUp(3),
             _ => {}
         },
         _ => {}

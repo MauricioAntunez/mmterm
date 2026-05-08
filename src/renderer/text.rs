@@ -311,6 +311,49 @@ impl Renderer {
             }
             row += 1;
         }
+
+        // Scrollbar overlay: thin 4px strip on the right edge of the pane.
+        // Only drawn when there is scrollback content to indicate position.
+        let sb_len = grid.scrollback.len();
+        if sb_len > 0 && rw >= 6 && rh > 0 {
+            let total = sb_len + grid.rows;
+            let view_start = sb_len.saturating_sub(pane.scroll_offset);
+
+            let thumb_h = ((rh as usize * grid.rows) / total).max(4) as u32;
+            let track_available = rh.saturating_sub(thumb_h) as usize;
+            let thumb_y = if total > grid.rows {
+                (track_available * view_start / (total - grid.rows)) as u32
+            } else {
+                0
+            };
+
+            let bar_x = rx + rw - 4;
+            let thumb_color = if pane.scroll_offset > 0 {
+                0xFF_89_b4_fa_u32 // blue when scrolled up
+            } else {
+                0xFF_45_47_58_u32 // dim gray at live view
+            };
+
+            for dy in 0..rh {
+                let sy = ry + dy;
+                // Track: dark semi-transparent strip
+                for dx in 0..4u32 {
+                    let idx = (sy * buf_width + bar_x + dx) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = blend(buf[idx], 0xFF_11_11_1d, 160);
+                    }
+                }
+                // Thumb: 2px wide, 1px inset from each side
+                if dy >= thumb_y && dy < thumb_y + thumb_h {
+                    for dx in 1..3u32 {
+                        let idx = (sy * buf_width + bar_x + dx) as usize;
+                        if idx < buf.len() {
+                            buf[idx] = thumb_color;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn draw_tab_bar(&mut self, buf: &mut [u32], width: u32, tabs: &[(String, bool, bool)]) {
