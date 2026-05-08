@@ -76,3 +76,48 @@ fn resize_updates_grid_and_rect() {
     assert_eq!(pane.parser.grid.rows, 12);
     assert_eq!(pane.rect, [0, 0, 320, 192]);
 }
+
+#[test]
+fn scroll_up_increments_offset_by_n() {
+    let mut pane = make_pane(80, 5);
+    for _ in 0..10 {
+        pane.process(b"line\r\n");
+    }
+    pane.scroll_up(3);
+    assert_eq!(pane.scroll_offset, 3);
+}
+
+#[test]
+fn scroll_down_decrements_offset_by_n() {
+    let mut pane = make_pane(80, 5);
+    for _ in 0..10 {
+        pane.process(b"line\r\n");
+    }
+    pane.scroll_up(6);
+    pane.scroll_down(2);
+    assert_eq!(pane.scroll_offset, 4);
+}
+
+#[test]
+fn scroll_up_then_down_round_trips() {
+    let mut pane = make_pane(80, 5);
+    for _ in 0..10 {
+        pane.process(b"line\r\n");
+    }
+    pane.scroll_up(5);
+    pane.scroll_down(5);
+    assert_eq!(pane.scroll_offset, 0);
+}
+
+#[test]
+fn scroll_top_then_scroll_bottom_resets() {
+    let mut pane = make_pane(80, 5);
+    for _ in 0..15 {
+        pane.process(b"line\r\n");
+    }
+    let max = pane.parser.grid.scrollback_len();
+    pane.scroll_top();
+    assert_eq!(pane.scroll_offset, max);
+    pane.scroll_bottom();
+    assert_eq!(pane.scroll_offset, 0);
+}

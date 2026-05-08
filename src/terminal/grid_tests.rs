@@ -184,3 +184,131 @@ fn exit_alternate_screen_when_not_active_is_noop() {
     g.exit_alternate_screen(); // not in alt screen — should not panic
     assert_eq!(g.cell(0, 0).c, 'A');
 }
+
+#[test]
+fn cell_default_is_space_with_standard_colors() {
+    let c = Cell::default();
+    assert_eq!(c.c, ' ');
+    assert!(!c.bold);
+    assert!(c.url.is_none());
+}
+
+#[test]
+fn scrollback_is_capped_at_max() {
+    let mut g = make_grid(4, 2);
+    // SCROLLBACK_MAX = 10_000; push one extra to trigger pop_front
+    g.scroll_up(10_001);
+    assert_eq!(g.scrollback_len(), 10_000);
+}
+
+#[test]
+fn blank_cell_uses_default_bg_not_sgr_bg() {
+    let mut g = make_grid(10, 5);
+    g.bg = Color::rgb(0xff, 0x00, 0x00);
+    let blank = g.blank_cell();
+    assert_eq!(blank.bg, g.default_bg);
+}
+
+#[test]
+fn erase_cell_uses_current_sgr_bg() {
+    let mut g = make_grid(10, 5);
+    let red = Color::rgb(0xff, 0x00, 0x00);
+    g.bg = red;
+    let erased = g.erase_cell();
+    assert_eq!(erased.bg, red);
+}
+
+#[test]
+fn write_char_stamps_bold_attribute() {
+    let mut g = make_grid(10, 5);
+    g.bold = true;
+    g.write_char('X');
+    assert!(g.cell(0, 0).bold);
+}
+
+#[test]
+fn write_char_stamps_dim_attribute() {
+    let mut g = make_grid(10, 5);
+    g.dim = true;
+    g.write_char('X');
+    assert!(g.cell(0, 0).dim);
+}
+
+#[test]
+fn write_char_stamps_underline_attribute() {
+    let mut g = make_grid(10, 5);
+    g.underline = true;
+    g.write_char('X');
+    assert!(g.cell(0, 0).underline);
+}
+
+#[test]
+fn write_char_stamps_strikethrough_attribute() {
+    let mut g = make_grid(10, 5);
+    g.strikethrough = true;
+    g.write_char('X');
+    assert!(g.cell(0, 0).strikethrough);
+}
+
+#[test]
+fn write_char_reverse_swaps_fg_and_bg() {
+    let mut g = make_grid(10, 5);
+    let original_fg = g.fg;
+    let original_bg = g.bg;
+    g.reverse = true;
+    g.write_char('X');
+    assert_eq!(g.cell(0, 0).fg, original_bg);
+    assert_eq!(g.cell(0, 0).bg, original_fg);
+}
+
+#[test]
+fn write_char_stamps_url_on_cell() {
+    use std::sync::Arc;
+    let mut g = make_grid(10, 5);
+    g.current_url = Some(Arc::new("https://example.com".to_string()));
+    g.write_char('X');
+    assert_eq!(g.cell(0, 0).url.as_deref().map(|s| s.as_str()), Some("https://example.com"));
+}
+
+#[test]
+fn advance_row_increments_cursor_when_not_at_bottom() {
+    let mut g = make_grid(5, 5);
+    g.cursor_row = 2;
+    g.advance_row();
+    assert_eq!(g.cursor_row, 3);
+    assert_eq!(g.scrollback_len(), 0);
+}
+
+#[test]
+fn advance_row_at_scroll_bottom_triggers_scroll_up() {
+    let mut g = make_grid(5, 5);
+    g.cursor_row = g.scroll_bottom;
+    g.write_char('Z');
+    let before_scrollback = g.scrollback_len();
+    g.cursor_col = 0;
+    g.cursor_row = g.scroll_bottom;
+    g.advance_row();
+    assert_eq!(g.scrollback_len(), before_scrollback + 1);
+    assert_eq!(g.cursor_row, g.scroll_bottom);
+}
+
+#[test]
+fn scroll_up_multiple_lines_adds_to_scrollback() {
+    let mut g = make_grid(4, 5);
+    for c in "ABCDE".chars() {
+        g.cursor_col = 0;
+        g.cursor_row = 0;
+        g.write_char(c);
+        g.scroll_up(1);
+    }
+    assert_eq!(g.scrollback_len(), 5);
+}
+
+#[test]
+fn scroll_down_multiple_lines_shifts_content() {
+    let mut g = make_grid(4, 4);
+    g.write_char('A');
+    g.scroll_down(2);
+    assert_eq!(g.cell(0, 0).c, ' ');
+    assert_eq!(g.cell(0, 2).c, 'A');
+}

@@ -93,6 +93,14 @@ fn move_down_at_last_stays() {
 // ── Cancel / quit ─────────────────────────────────────────────────────────────
 
 #[test]
+fn handle_char_unknown_not_editing_is_noop() {
+    let mut panel = make_panel();
+    let action = panel.handle_char('x');
+    assert!(matches!(action, ConfigAction::None));
+    assert_eq!(panel.selected, 0);
+}
+
+#[test]
 fn handle_char_q_returns_cancel() {
     let mut panel = make_panel();
     assert!(matches!(panel.handle_char('q'), ConfigAction::Cancel));

@@ -594,3 +594,91 @@ fn reverse_index_at_scroll_top_scrolls_content_down() {
     assert_eq!(p.grid.cell(0, 1).c, 'A');
     assert_eq!(p.grid.cell(0, 0).c, ' ');
 }
+
+// ── Additional edge cases ─────────────────────────────────────────────────────
+
+#[test]
+fn crlf_moves_to_col_zero_next_row() {
+    let mut p = make_parser(10, 5);
+    p.process(b"AB\r\n");
+    assert_eq!(p.grid.cursor_col, 0);
+    assert_eq!(p.grid.cursor_row, 1);
+    assert_eq!(p.grid.cell(0, 0).c, 'A');
+    assert_eq!(p.grid.cell(1, 0).c, 'B');
+}
+
+#[test]
+fn cursor_position_clamps_to_grid_bounds() {
+    let mut p = make_parser(10, 5);
+    p.process(b"\x1b[999;999H");
+    assert_eq!(p.grid.cursor_row, 4);
+    assert_eq!(p.grid.cursor_col, 9);
+}
+
+#[test]
+fn nul_byte_is_ignored() {
+    let mut p = make_parser(10, 5);
+    p.process(b"A\x00B");
+    assert_eq!(p.grid.cell(0, 0).c, 'A');
+    assert_eq!(p.grid.cell(1, 0).c, 'B');
+    assert_eq!(p.grid.cursor_col, 2);
+}
+
+#[test]
+fn sgr_bold_persists_across_chars() {
+    let mut p = make_parser(10, 5);
+    p.process(b"\x1b[1mAB\x1b[0mC");
+    assert!(p.grid.cell(0, 0).bold);
+    assert!(p.grid.cell(1, 0).bold);
+    assert!(!p.grid.cell(2, 0).bold);
+}
+
+#[test]
+fn cursor_up_clamps_at_scroll_top() {
+    let mut p = make_parser(10, 5);
+    p.grid.scroll_top = 2;
+    p.grid.cursor_row = 2;
+    p.process(b"\x1b[10A");
+    assert_eq!(p.grid.cursor_row, 0);
+}
+
+#[test]
+fn cursor_down_clamps_at_last_row() {
+    let mut p = make_parser(10, 5);
+    p.grid.cursor_row = 3;
+    p.process(b"\x1b[10B");
+    assert_eq!(p.grid.cursor_row, 4);
+}
+
+#[test]
+fn cha_clamps_to_last_col() {
+    let mut p = make_parser(10, 5);
+    p.process(b"\x1b[999G");
+    assert_eq!(p.grid.cursor_col, 9);
+}
+
+#[test]
+fn multiple_scroll_ups_accumulate_scrollback() {
+    let mut p = make_parser(5, 3);
+    p.process(b"line1\r\nline2\r\nline3\r\nline4\r\n");
+    assert!(p.grid.scrollback_len() > 0);
+}
+
+#[test]
+fn sgr_underline_off_code_24_clears_underline() {
+    let mut p = make_parser(10, 5);
+    p.process(b"\x1b[4m");
+    assert!(p.grid.underline);
+    p.process(b"\x1b[24m");
+    assert!(!p.grid.underline);
+}
+
+#[test]
+fn dcs_sequence_hook_put_unhook_do_not_panic() {
+    // DCS: \x1bP<data>\x1b\\ — exercises hook(), put(), and unhook()
+    let mut p = make_parser(10, 5);
+    p.process(b"\x1bPhello\x1b\\");
+    // No assertion beyond "did not panic"; parser should remain usable
+    p.process(b"X");
+    assert_eq!(p.grid.cell(0, 0).c, 'X');
+}

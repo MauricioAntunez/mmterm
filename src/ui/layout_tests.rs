@@ -209,3 +209,56 @@ fn focus_dir_updates_best_when_closer_candidate_found() {
     let result = layout.focus_dir(1, 0, -1);
     assert_eq!(result, Some(2)); // pane 2 is closer than pane 0
 }
+
+#[test]
+fn rects_start_at_tab_bar_height() {
+    let layout = Layout::new(0, W, H);
+    let rects = layout.rects();
+    assert_eq!(rects[0].1[1], TAB_BAR_H);
+}
+
+#[test]
+fn four_pane_layout_has_four_rects() {
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.split(0, 2, SplitDir::V);
+    layout.split(1, 3, SplitDir::V);
+    assert_eq!(layout.leaves().len(), 4);
+    assert_eq!(layout.rects().len(), 4);
+    assert_eq!(layout.separators().len(), 3);
+}
+
+#[test]
+fn h_split_separator_is_vertical() {
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    let seps = layout.separators();
+    assert_eq!(seps.len(), 1);
+    // vertical separator spans full usable height, width is SEP
+    assert_eq!(seps[0][2], SEP);
+    assert_eq!(seps[0][3], H - STATUS_BAR_H - TAB_BAR_H);
+}
+
+#[test]
+fn split_then_remove_restores_single_pane() {
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.remove(1);
+    assert_eq!(layout.leaves(), vec![0]);
+    let rects = layout.rects();
+    assert_eq!(rects.len(), 1);
+    assert_eq!(rects[0].1[2], W);
+}
+
+#[test]
+fn pane_rects_cover_full_usable_area_in_h_split() {
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    let rects = layout.rects();
+    // Both panes start at same y (TAB_BAR_H) and have same height
+    assert_eq!(rects[0].1[1], rects[1].1[1]);
+    assert_eq!(rects[0].1[3], rects[1].1[3]);
+    // Widths + separator = total width
+    let total: u32 = rects.iter().map(|(_, r)| r[2]).sum::<u32>() + SEP;
+    assert_eq!(total, W);
+}
