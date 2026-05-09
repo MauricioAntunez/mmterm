@@ -30,9 +30,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: mmterm-macos-aarch64
-          - os: macos-13
-            target: x86_64-apple-darwin
-            artifact: mmterm-macos-x86_64
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
