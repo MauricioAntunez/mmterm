@@ -295,7 +295,7 @@ impl Renderer {
                     }
                 }
 
-                if cell.c != ' ' && !(cell.blink && !pane.blink_visible) {
+                if cell.c != ' ' && (!cell.blink || pane.blink_visible) {
                     let info = self.glyphs.get(cell.c, m.font_px, cell.bold);
                     let (gw, gh) = (info.width, info.height);
                     let glyph_top = m.baseline as i32 - (gh as i32 + info.ymin);
