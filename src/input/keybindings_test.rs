@@ -1422,7 +1422,7 @@ fn visual_unrecognized_named_key_returns_none() {
 // ── Alt modifier encoding ─────────────────────────────────────────────────────
 
 #[test]
-fn insert_alt_tab_sends_esc_tab() {
+fn insert_alt_tab_returns_none() {
     let a = handle_key_inner(
         &named(NamedKey::Tab),
         false,
@@ -1433,7 +1433,22 @@ fn insert_alt_tab_sends_esc_tab() {
         24,
         false,
     );
-    assert!(matches!(a, Action::SendToPty(ref v) if v == &[0x1b, b'\t']));
+    assert!(matches!(a, Action::None));
+}
+
+#[test]
+fn insert_alt_shift_tab_returns_none() {
+    let a = handle_key_inner(
+        &named(NamedKey::Tab),
+        false,
+        true,
+        true,
+        &insert(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::None));
 }
 
 #[test]

@@ -6,6 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Tab keystroke from Alt+Tab window switching no longer leaks into the PTY; modifier state is also reset when mmterm loses focus
 - plain-text URL detection no longer includes trailing `)`, `.`, `,`, and similar punctuation in the link
 
 ## [0.1.0] - 2026-05-09

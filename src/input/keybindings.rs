@@ -174,6 +174,12 @@ pub(crate) fn handle_key_inner(
         }
     }
 
+    // Alt+Tab / Alt+Shift+Tab — consumed silently so the keystroke isn't
+    // forwarded to the PTY while the window manager switches focus.
+    if alt && !ctrl && *key == Key::Named(NamedKey::Tab) {
+        return Action::None;
+    }
+
     // ── Per-mode handling ────────────────────────────────────────────────
     match mode {
         InputMode::Insert => handle_insert(key, ctrl, alt, application_cursor_keys),

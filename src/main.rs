@@ -20,6 +20,7 @@ use ui::{Layout, Pane, SplitDir};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, Modifiers, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
+use winit::keyboard::{Key, NamedKey};
 use winit::window::{CursorIcon, Icon, Window, WindowId};
 
 use crate::input::keybindings::Action;
@@ -75,6 +76,9 @@ struct App {
     search_matches: Vec<(usize, usize, usize)>,
     search_current: usize,
     hovered_url: Option<String>,
+    // Swallow the first Tab keypress after regaining focus so that the Tab
+    // from an Alt+Tab window switch isn't forwarded to the PTY.
+    swallow_next_tab: bool,
 }
 
 impl App {
@@ -102,6 +106,7 @@ impl App {
             search_matches: Vec::new(),
             search_current: 0,
             hovered_url: None,
+            swallow_next_tab: false,
         }
     }
 
@@ -1050,6 +1055,19 @@ impl ApplicationHandler for App {
                 self.sync_all_pane_sizes();
             }
 
+            WindowEvent::Focused(gained) => {
+                if gained {
+                    // The Tab from the Alt+Tab that brought focus back may
+                    // arrive as a plain Tab (Alt already released by the WM).
+                    // Mark it to be swallowed so it isn't sent to the PTY.
+                    self.swallow_next_tab = true;
+                } else {
+                    // Clear modifier state — the WM won't send release events
+                    // for keys held when focus leaves.
+                    self.modifiers = Modifiers::default();
+                }
+            }
+
             WindowEvent::ModifiersChanged(mods) => {
                 self.modifiers = mods;
             }
@@ -1057,6 +1075,15 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {
                     return;
+                }
+
+                // Swallow the first Tab that arrives after regaining focus —
+                // it is the Tab from the Alt+Tab that transferred focus to us.
+                if self.swallow_next_tab {
+                    self.swallow_next_tab = false;
+                    if event.logical_key == Key::Named(NamedKey::Tab) {
+                        return;
+                    }
                 }
 
                 // Reset blink on every keypress so cursor is always visible after input.
