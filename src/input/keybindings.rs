@@ -49,15 +49,30 @@ pub fn handle_key(
     if event.state != ElementState::Pressed {
         return Action::None;
     }
-
     let ctrl  = modifiers.state().control_key();
     let shift = modifiers.state().shift_key();
+    handle_key_inner(&event.logical_key, ctrl, shift, mode, grid_cols, grid_rows, application_cursor_keys)
+}
 
+pub fn handle_ctrl_w(event: &KeyEvent) -> Action {
+    if event.state != ElementState::Pressed { return Action::None; }
+    ctrl_w_action(&event.logical_key)
+}
+
+pub(crate) fn handle_key_inner(
+    key: &Key,
+    ctrl: bool,
+    shift: bool,
+    mode: &InputMode,
+    grid_cols: usize,
+    grid_rows: usize,
+    application_cursor_keys: bool,
+) -> Action {
     // ── Global shortcuts (all modes, never sent to PTY) ──────────────────
 
     // Ctrl+W — pane management prefix
     if ctrl && !shift {
-        if let Key::Character(s) = &event.logical_key {
+        if let Key::Character(s) = key {
             if s.eq_ignore_ascii_case("w") {
                 return Action::CtrlWPrefix;
             }
@@ -66,7 +81,7 @@ pub fn handle_key(
 
     // Ctrl+. — cycle Insert → Normal → Visual
     if ctrl {
-        if let Key::Character(s) = &event.logical_key {
+        if let Key::Character(s) = key {
             if s == "." {
                 let next = match mode {
                     InputMode::Insert    => InputMode::Normal,
@@ -85,7 +100,7 @@ pub fn handle_key(
     }
 
     if ctrl && shift {
-        match &event.logical_key {
+        match key {
             Key::Character(s) if s.eq_ignore_ascii_case("v") => return Action::Paste,
             Key::Character(s) if s.eq_ignore_ascii_case("w") => return Action::CloseTab,
             Key::Character(s) if s.eq_ignore_ascii_case("r") => return Action::RenameTab,
@@ -100,7 +115,7 @@ pub fn handle_key(
     }
 
     if ctrl && !shift {
-        if let Key::Character(s) = &event.logical_key {
+        if let Key::Character(s) = key {
             if s.eq_ignore_ascii_case("c") && matches!(mode, InputMode::Visual { .. }) {
                 return Action::Copy;
             }
@@ -108,7 +123,7 @@ pub fn handle_key(
     }
 
     if ctrl && !shift {
-        match &event.logical_key {
+        match key {
             Key::Character(s) if s.eq_ignore_ascii_case("q") => return Action::Quit,
             Key::Character(s) if s == ","                    => return Action::OpenConfig,
             Key::Character(s) if s.eq_ignore_ascii_case("t") => return Action::NewTab,
@@ -121,16 +136,16 @@ pub fn handle_key(
             _ => {}
         }
         // Ctrl+PageUp/Down → tab navigation
-        if event.logical_key == Key::Named(NamedKey::PageUp) {
+        if *key == Key::Named(NamedKey::PageUp) {
             return Action::PrevTab;
         }
-        if event.logical_key == Key::Named(NamedKey::PageDown) {
+        if *key == Key::Named(NamedKey::PageDown) {
             return Action::NextTab;
         }
     }
 
     if shift && !ctrl {
-        match &event.logical_key {
+        match key {
             Key::Named(NamedKey::PageUp)   => return Action::ScrollUp(grid_rows),
             Key::Named(NamedKey::PageDown) => return Action::ScrollDown(grid_rows),
             _ => {}
@@ -139,19 +154,18 @@ pub fn handle_key(
 
     // ── Per-mode handling ────────────────────────────────────────────────
     match mode {
-        InputMode::Insert => handle_insert(event, ctrl, application_cursor_keys),
-        InputMode::Normal => handle_normal(event, ctrl, grid_rows),
+        InputMode::Insert => handle_insert(key, ctrl, application_cursor_keys),
+        InputMode::Normal => handle_normal(key, grid_rows),
         InputMode::Visual { start_col, start_row, cur_col, cur_row } => {
-            handle_visual(event, *start_col, *start_row, *cur_col, *cur_row, grid_cols, grid_rows)
+            handle_visual(key, *start_col, *start_row, *cur_col, *cur_row, grid_cols, grid_rows)
         }
         InputMode::RenameTab { .. } => Action::None,
         InputMode::Search { .. } => Action::None,
     }
 }
 
-pub fn handle_ctrl_w(event: &KeyEvent) -> Action {
-    if event.state != ElementState::Pressed { return Action::None; }
-    match &event.logical_key {
+pub(crate) fn ctrl_w_action(key: &Key) -> Action {
+    match key {
         Key::Character(s) => match s.to_lowercase().as_str() {
             "v" => Action::SplitH,
             "s" => Action::SplitV,
@@ -172,10 +186,10 @@ pub fn handle_ctrl_w(event: &KeyEvent) -> Action {
     }
 }
 
-fn handle_insert(event: &KeyEvent, ctrl: bool, application_cursor_keys: bool) -> Action {
+fn handle_insert(key: &Key, ctrl: bool, application_cursor_keys: bool) -> Action {
     // Escape is forwarded to PTY — vim / other TUI apps need it
     if ctrl {
-        if let Key::Character(s) = &event.logical_key {
+        if let Key::Character(s) = key {
             if let Some(c) = s.chars().next() {
                 let raw = c as u32;
                 if raw >= 1 && raw <= 26 {
@@ -187,12 +201,12 @@ fn handle_insert(event: &KeyEvent, ctrl: bool, application_cursor_keys: bool) ->
                 }
             }
         }
-        if event.logical_key == Key::Named(NamedKey::Enter) {
+        if *key == Key::Named(NamedKey::Enter) {
             return Action::SendToPty(vec![b'\n']);
         }
     }
 
-    match &event.logical_key {
+    match key {
         Key::Named(NamedKey::Escape)    => Action::SendToPty(vec![0x1b]),
         Key::Named(NamedKey::Space)     => Action::SendToPty(vec![b' ']),
         Key::Named(NamedKey::Enter)     => Action::SendToPty(vec![b'\r']),
@@ -224,34 +238,30 @@ fn handle_insert(event: &KeyEvent, ctrl: bool, application_cursor_keys: bool) ->
     }
 }
 
-fn handle_normal(event: &KeyEvent, _ctrl: bool, grid_rows: usize) -> Action {
-    // Escape or i → return to Insert (and send Escape to PTY)
-    match &event.logical_key {
-        Key::Named(NamedKey::Escape) => {
-            return Action::SetMode(InputMode::Insert);
-        }
-        Key::Named(NamedKey::PageUp)   => return Action::ScrollUp(grid_rows),
-        Key::Named(NamedKey::PageDown) => return Action::ScrollDown(grid_rows),
+fn handle_normal(key: &Key, grid_rows: usize) -> Action {
+    match key {
+        Key::Named(NamedKey::Escape)   => Action::SetMode(InputMode::Insert),
+        Key::Named(NamedKey::PageUp)   => Action::ScrollUp(grid_rows),
+        Key::Named(NamedKey::PageDown) => Action::ScrollDown(grid_rows),
         Key::Character(s) => match s.as_str() {
-            "i" => return Action::SetMode(InputMode::Insert),
-            "v" => return Action::SetMode(InputMode::Visual {
+            "i" => Action::SetMode(InputMode::Insert),
+            "v" => Action::SetMode(InputMode::Visual {
                 start_col: 0, start_row: 0, cur_col: 0, cur_row: 0,
             }),
-            "q" => return Action::ClosePane,
-            "/" => return Action::SearchOpen,
-            "n" => return Action::SearchNext,
-            "N" => return Action::SearchPrev,
-            "j" => return Action::ScrollDown(3),
-            "k" => return Action::ScrollUp(3),
-            _ => {}
+            "q" => Action::ClosePane,
+            "/" => Action::SearchOpen,
+            "n" => Action::SearchNext,
+            "N" => Action::SearchPrev,
+            "j" => Action::ScrollDown(3),
+            "k" => Action::ScrollUp(3),
+            _   => Action::None,
         },
-        _ => {}
+        _ => Action::None,
     }
-    Action::None
 }
 
 fn handle_visual(
-    event: &KeyEvent,
+    key: &Key,
     start_col: usize,
     start_row: usize,
     cur_col: usize,
@@ -269,7 +279,7 @@ fn handle_visual(
         cur_row: nr.min(rows),
     });
 
-    match &event.logical_key {
+    match key {
         Key::Named(NamedKey::Escape)     => Action::SetMode(InputMode::Insert),
         Key::Named(NamedKey::ArrowLeft)  => move_to(cur_col.saturating_sub(1), cur_row),
         Key::Named(NamedKey::ArrowRight) => move_to((cur_col + 1).min(cols), cur_row),
@@ -292,3 +302,7 @@ fn handle_visual(
         _ => Action::None,
     }
 }
+
+#[cfg(test)]
+#[path = "keybindings_tests.rs"]
+mod tests;
