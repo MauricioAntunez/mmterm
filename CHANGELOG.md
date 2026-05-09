@@ -5,12 +5,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Fixed
-- Tab keystroke from Alt+Tab window switching no longer leaks into the PTY; modifier state is also reset when mmterm loses focus
-- plain-text URL detection no longer includes trailing `)`, `.`, `,`, and similar punctuation in the link
-
-## [0.1.0] - 2026-05-09
-
 ### Added
 
 #### Terminal emulation
@@ -77,6 +71,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Tab keystroke from Alt+Tab window switching no longer leaks into the PTY; modifier state is also reset when mmterm loses focus
+- plain-text URL detection no longer includes trailing `)`, `.`, `,`, and similar punctuation in the link
 - Alt modifier propagation to prevent bare tab on `Alt+Tab`
 - `ZoomPane` dispatch missing in normal key handler
 - `q` in Normal mode closed the app instead of the pane
@@ -92,5 +88,4 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Fixed CPU busy-loop in PTY event loop
 
-[Unreleased]: https://github.com/roramirez/mmterm/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/roramirez/mmterm/releases/tag/v0.1.0
+[Unreleased]: https://github.com/roramirez/mmterm/commits/main
