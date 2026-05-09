@@ -194,6 +194,11 @@ renderer.draw_config_panel(buf, bw, bh, panel)
 - Do not `unwrap()` on paths reachable at runtime — use `?`, `if let`, or a logged fallback
 - Do not persist session-only state (per-tab font size, scroll offset, zoom) to config
 
+## Code Style
+
+- Run `cargo fmt` before every commit — all code in the repo must be `rustfmt`-clean.
+- Never manually align `match` arms, function arguments, or struct fields; let `rustfmt` decide.
+
 ## Logging
 
 `log::info!` / `log::warn!` — activated with `RUST_LOG=info mmterm`.

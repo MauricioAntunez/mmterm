@@ -279,6 +279,8 @@ vim-style modal input, split panes, and multi-tab sessions.
 - Logging via `log::info!` / `log::warn!` — activated with `RUST_LOG=info`.
 - No comments on obvious code; one-line comments only for non-obvious
   invariants or workarounds (the *why*, never the *what*).
+- All code must be formatted with `cargo fmt` before committing. Never commit
+  manually-aligned or otherwise unformatted Rust code.
 
 ---
 
