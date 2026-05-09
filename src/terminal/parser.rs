@@ -46,11 +46,8 @@ impl Perform for Performer<'_> {
         match byte {
             b'\r' => self.grid.cursor_col = 0,
             b'\n' => self.grid.advance_row(),
-            0x08 => {
-                // backspace
-                if self.grid.cursor_col > 0 {
-                    self.grid.cursor_col -= 1;
-                }
+            0x08 if self.grid.cursor_col > 0 => {
+                self.grid.cursor_col -= 1;
             }
             0x07 => self.grid.bell_pending = true,
             0x09 => {
@@ -214,46 +211,30 @@ impl Perform for Performer<'_> {
                         // Bright background 100-107
                         n @ 100..=107 => self.grid.bg = self.grid.palette[(n - 100 + 8) as usize],
                         // 256-color and truecolor
-                        38 => {
-                            if i + 1 < ps.len() {
-                                match ps[i + 1] {
-                                    5 if i + 2 < ps.len() => {
-                                        self.grid.fg =
-                                            color256(ps[i + 2] as u8, &self.grid.palette);
-                                        i += 2;
-                                    }
-                                    2 if i + 4 < ps.len() => {
-                                        self.grid.fg = Color::rgb(
-                                            ps[i + 2] as u8,
-                                            ps[i + 3] as u8,
-                                            ps[i + 4] as u8,
-                                        );
-                                        i += 4;
-                                    }
-                                    _ => {}
-                                }
+                        38 if i + 1 < ps.len() => match ps[i + 1] {
+                            5 if i + 2 < ps.len() => {
+                                self.grid.fg = color256(ps[i + 2] as u8, &self.grid.palette);
+                                i += 2;
                             }
-                        }
-                        48 => {
-                            if i + 1 < ps.len() {
-                                match ps[i + 1] {
-                                    5 if i + 2 < ps.len() => {
-                                        self.grid.bg =
-                                            color256(ps[i + 2] as u8, &self.grid.palette);
-                                        i += 2;
-                                    }
-                                    2 if i + 4 < ps.len() => {
-                                        self.grid.bg = Color::rgb(
-                                            ps[i + 2] as u8,
-                                            ps[i + 3] as u8,
-                                            ps[i + 4] as u8,
-                                        );
-                                        i += 4;
-                                    }
-                                    _ => {}
-                                }
+                            2 if i + 4 < ps.len() => {
+                                self.grid.fg =
+                                    Color::rgb(ps[i + 2] as u8, ps[i + 3] as u8, ps[i + 4] as u8);
+                                i += 4;
                             }
-                        }
+                            _ => {}
+                        },
+                        48 if i + 1 < ps.len() => match ps[i + 1] {
+                            5 if i + 2 < ps.len() => {
+                                self.grid.bg = color256(ps[i + 2] as u8, &self.grid.palette);
+                                i += 2;
+                            }
+                            2 if i + 4 < ps.len() => {
+                                self.grid.bg =
+                                    Color::rgb(ps[i + 2] as u8, ps[i + 3] as u8, ps[i + 4] as u8);
+                                i += 4;
+                            }
+                            _ => {}
+                        },
                         _ => {}
                     }
                     i += 1;
@@ -352,32 +333,31 @@ impl Perform for Performer<'_> {
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
         // OSC 0/1/2: set window title (0 and 2 = window title, 1 = icon name)
-        if let [code, title] = params {
-            if matches!(*code, b"0" | b"1" | b"2") {
-                if let Ok(s) = std::str::from_utf8(title) {
-                    let t = s.trim();
-                    self.grid.osc_title = if t.is_empty() {
-                        None
-                    } else {
-                        Some(t.to_string())
-                    };
-                }
-            }
+        if let [code, title] = params
+            && matches!(*code, b"0" | b"1" | b"2")
+            && let Ok(s) = std::str::from_utf8(title)
+        {
+            let t = s.trim();
+            self.grid.osc_title = if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            };
         }
         // OSC 7: current working directory reported by the shell
-        if let [b"7", uri] = params {
-            if let Ok(s) = std::str::from_utf8(uri) {
-                self.grid.cwd = parse_osc7_uri(s);
-            }
+        if let [b"7", uri] = params
+            && let Ok(s) = std::str::from_utf8(uri)
+        {
+            self.grid.cwd = parse_osc7_uri(s);
         }
         // OSC 8 hyperlink: \e]8;params;uri\e\\  (empty uri = end link)
-        if let [osc, _, uri, ..] = params {
-            if *osc == b"8" {
-                if uri.is_empty() {
-                    self.grid.current_url = None;
-                } else if let Ok(s) = std::str::from_utf8(uri) {
-                    self.grid.current_url = Some(std::sync::Arc::new(s.to_string()));
-                }
+        if let [osc, _, uri, ..] = params
+            && *osc == b"8"
+        {
+            if uri.is_empty() {
+                self.grid.current_url = None;
+            } else if let Ok(s) = std::str::from_utf8(uri) {
+                self.grid.current_url = Some(std::sync::Arc::new(s.to_string()));
             }
         }
     }

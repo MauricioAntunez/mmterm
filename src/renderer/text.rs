@@ -7,12 +7,12 @@ use crate::ui::layout::TAB_BAR_H;
 
 const STATUS_BAR_H: u32 = 22;
 const BADGE_PAD_X: u32 = 8;
-const SEP_COLOR: u32 = 0xFF_31_32_44;
+const SEP_COLOR: u32 = 0xff_31_32_44;
 
 const SEARCH_MATCH_BG: Color = Color::rgb(0xf9, 0xe2, 0xaf);
 const SEARCH_CURRENT_BG: Color = Color::rgb(0xfe, 0x64, 0x0d);
 const SEARCH_MATCH_FG: Color = Color::rgb(0x11, 0x11, 0x1d);
-const HYPERLINK_UL: u32 = 0xFF_89_b4_fa; // blue underline for OSC 8 links
+const HYPERLINK_UL: u32 = 0xff_89_b4_fa; // blue underline for OSC 8 links
 
 pub struct PaneView<'a> {
     pub grid: &'a Grid,
@@ -89,6 +89,7 @@ impl Renderer {
         FontMetrics::compute(&mut self.glyphs, font_px)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         buf: &mut [u32],
@@ -132,7 +133,7 @@ impl Renderer {
         // (top-edge highlight removed — tab bar serves that role)
 
         if bell_flash {
-            let flash_color = 0xFF_FF_FF_FF_u32;
+            let flash_color = 0xff_ff_ff_ff_u32;
             let content_top = TAB_BAR_H;
             let content_bot = buf_height.saturating_sub(STATUS_BAR_H);
             for y in content_top..content_bot {
@@ -214,7 +215,7 @@ impl Renderer {
 
                 let is_cursor =
                     pane.show_cursor && col == grid.cursor_col && row == grid.cursor_row;
-                let is_selected = selection_range.map_or(false, |(sc, sr, ec, er)| {
+                let is_selected = selection_range.is_some_and(|(sc, sr, ec, er)| {
                     let (r0, c0, r1, c1) = if (sr, sc) <= (er, ec) {
                         (sr, sc, er, ec)
                     } else {
@@ -323,7 +324,7 @@ impl Renderer {
                                 }
                                 let idx = (sy * buf_width + sx) as usize;
                                 if idx < buf.len() {
-                                    let px = (0xFF_u32 << 24) | (r << 16) | (g << 8) | b;
+                                    let px = (0xff_u32 << 24) | (r << 16) | (g << 8) | b;
                                     let px = if pane.is_active {
                                         px
                                     } else {
@@ -429,9 +430,9 @@ impl Renderer {
 
             let bar_x = rx + rw - 4;
             let thumb_color = if pane.scroll_offset > 0 {
-                0xFF_89_b4_fa_u32 // blue when scrolled up
+                0xff_89_b4_fa_u32 // blue when scrolled up
             } else {
-                0xFF_45_47_58_u32 // dim gray at live view
+                0xff_45_47_58_u32 // dim gray at live view
             };
 
             for dy in 0..rh {
@@ -440,7 +441,7 @@ impl Renderer {
                 for dx in 0..4u32 {
                     let idx = (sy * buf_width + bar_x + dx) as usize;
                     if idx < buf.len() {
-                        buf[idx] = blend(buf[idx], 0xFF_11_11_1d, 160);
+                        buf[idx] = blend(buf[idx], 0xff_11_11_1d, 160);
                     }
                 }
                 // Thumb: 2px wide, 1px inset from each side
@@ -457,8 +458,8 @@ impl Renderer {
     }
 
     fn draw_tab_bar(&mut self, buf: &mut [u32], width: u32, tabs: &[(String, bool, bool)]) {
-        let bar_bg = 0xFF_11_11_1d_u32;
-        let sep_col = 0xFF_31_32_44_u32;
+        let bar_bg = 0xff_11_11_1d_u32;
+        let sep_col = 0xff_31_32_44_u32;
         let fp = self.status_font_px;
         let cw = self.glyphs.rasterize('M', fp, false).1;
 
@@ -484,9 +485,9 @@ impl Renderer {
         for (label, is_active, has_activity) in tabs {
             let tab_w = label.len() as u32 * cw + 12;
             let (badge_bg, text_color) = if *is_active {
-                (0xFF_89_b4_fa_u32, 0xFF_11_11_1d_u32)
+                (0xff_89_b4_fa_u32, 0xff_11_11_1d_u32)
             } else {
-                (0xFF_24_25_3a_u32, 0xFF_58_5b_70_u32)
+                (0xff_24_25_3a_u32, 0xff_58_5b_70_u32)
             };
 
             // Badge fill
@@ -515,7 +516,7 @@ impl Renderer {
             // Activity dot: small filled square in the top-right corner of the badge
             if *has_activity && !*is_active {
                 const DOT: u32 = 4;
-                let dot_color = 0xFF_f3_8b_a8_u32; // pink
+                let dot_color = 0xff_f3_8b_a8_u32; // pink
                 let dot_x = cursor_x + tab_w.saturating_sub(DOT + 3);
                 let dot_y = 4u32;
                 for dy in 0..DOT {
@@ -538,7 +539,7 @@ impl Renderer {
             let r = ((*p >> 16) & 0xFF) / 3;
             let g = ((*p >> 8) & 0xFF) / 3;
             let b = (*p & 0xFF) / 3;
-            *p = 0xFF_00_00_00 | (r << 16) | (g << 8) | b;
+            *p = 0xff_00_00_00 | (r << 16) | (g << 8) | b;
         }
 
         let fp = self.status_font_px;
@@ -556,8 +557,8 @@ impl Renderer {
         let px = (bw - panel_w) / 2;
         let py = (bh.saturating_sub(panel_h)) / 2;
 
-        let bg = 0xFF_1a_1b_26_u32;
-        let border = 0xFF_89_b4_fa_u32;
+        let bg = 0xff_1a_1b_26_u32;
+        let border = 0xff_89_b4_fa_u32;
 
         // Background + border
         for dy in 0..panel_h {
@@ -599,7 +600,7 @@ impl Renderer {
             "CONFIGURATION",
             fp,
             true,
-            0xFF_cb_a6_f7,
+            0xff_cb_a6_f7,
         );
         // scroll indicator
         let total = panel.fields.len();
@@ -614,7 +615,7 @@ impl Renderer {
             &scroll_info,
             fp,
             false,
-            0xFF_58_5b_70,
+            0xff_58_5b_70,
         );
 
         // Scroll window: keep selected in view
@@ -639,7 +640,7 @@ impl Renderer {
                 for dx in 1..panel_w - 1 {
                     let idx = (draw_y * bw + px + dx) as usize;
                     if idx < buf.len() {
-                        buf[idx] = 0xFF_24_25_3a;
+                        buf[idx] = 0xff_24_25_3a;
                     }
                 }
                 let sec_label = format!("── {} ", sec);
@@ -652,7 +653,7 @@ impl Renderer {
                     &sec_label,
                     fp,
                     true,
-                    0xFF_58_5b_70,
+                    0xff_58_5b_70,
                 );
                 draw_y += section_h;
                 if draw_y + row_h > py + panel_h - row_h * footer_rows {
@@ -664,7 +665,7 @@ impl Renderer {
             let is_editing = panel.editing && is_sel;
 
             // Row background
-            let row_bg = if is_sel { 0xFF_2a_2b_3d } else { bg };
+            let row_bg = if is_sel { 0xff_2a_2b_3d } else { bg };
             for dx in 1..panel_w - 1 {
                 for dy in 0..row_h {
                     let idx = ((draw_y + dy) * bw + px + dx) as usize;
@@ -687,7 +688,7 @@ impl Renderer {
             if field.kind == crate::tui_config::FieldKind::HexColor {
                 let hex = panel.display_value(i);
                 if let Ok(n) = u32::from_str_radix(hex.trim_start_matches('#'), 16) {
-                    let swatch_color = 0xFF_00_00_00 | n;
+                    let swatch_color = 0xff_00_00_00 | n;
                     for dy in 2..row_h - 2 {
                         for dx in 0..8 {
                             let sx = px + panel_w - pad - 10 + dx;
@@ -701,7 +702,7 @@ impl Renderer {
                 }
             }
 
-            let label_color = if is_sel { 0xFF_f9_e2_af } else { 0xFF_ba_c2_de };
+            let label_color = if is_sel { 0xff_f9_e2_af } else { 0xff_ba_c2_de };
             let cursor_str = if is_editing { "_" } else { "" };
             let text = format!(
                 "{:<18} {}{}",
@@ -732,7 +733,7 @@ impl Renderer {
                     "[editing]",
                     fp,
                     false,
-                    0xFF_a6_e3_a1,
+                    0xff_a6_e3_a1,
                 );
             }
 
@@ -745,7 +746,7 @@ impl Renderer {
         for dx in 1..panel_w - 1 {
             let idx = (footer_y * bw + px + dx) as usize;
             if idx < buf.len() {
-                buf[idx] = 0xFF_31_32_44;
+                buf[idx] = 0xff_31_32_44;
             }
         }
 
@@ -759,7 +760,7 @@ impl Renderer {
             &hint,
             fp,
             false,
-            0xFF_58_5b_70,
+            0xff_58_5b_70,
         );
 
         let status_y = py + panel_h - row_h;
@@ -768,9 +769,9 @@ impl Renderer {
             .as_deref()
             .unwrap_or("j/k: move  Enter/i: edit  Ctrl+S: save  q/Esc: cancel");
         let status_color = if panel.status.is_some() {
-            0xFF_f3_8b_a8
+            0xff_f3_8b_a8
         } else {
-            0xFF_58_5b_70
+            0xff_58_5b_70
         };
         self.draw_str(
             buf,
@@ -785,6 +786,7 @@ impl Renderer {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_str(
         &mut self,
         buf: &mut [u32],
@@ -827,6 +829,7 @@ impl Renderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_status_bar(
         &mut self,
         buf: &mut [u32],
@@ -838,7 +841,7 @@ impl Renderer {
         cwd: Option<&str>,
     ) {
         let bar_y = height.saturating_sub(STATUS_BAR_H);
-        let bar_bg = 0xFF_18_18_25_u32;
+        let bar_bg = 0xff_18_18_25_u32;
 
         for y in bar_y..height {
             for x in 0..width {
@@ -852,13 +855,13 @@ impl Renderer {
             for x in 0..width {
                 let idx = (bar_y * width + x) as usize;
                 if idx < buf.len() {
-                    buf[idx] = 0xFF_31_32_44;
+                    buf[idx] = 0xff_31_32_44;
                 }
             }
         }
 
         let (label, badge_color) = mode_style(mode);
-        let badge_fg = 0xFF_11_11_1d_u32;
+        let badge_fg = 0xff_11_11_1d_u32;
         let px = self.status_font_px;
         let char_w = self.glyphs.rasterize('M', px, true).1;
         let badge_w = label.len() as u32 * char_w + BADGE_PAD_X * 2;
@@ -918,7 +921,7 @@ impl Renderer {
                 &info,
                 px,
                 false,
-                0xFF_ba_c2_de,
+                0xff_ba_c2_de,
             );
         }
 
@@ -935,14 +938,14 @@ impl Renderer {
                     path,
                     px,
                     false,
-                    0xFF_58_5b_70,
+                    0xff_58_5b_70,
                 );
             }
         }
     }
 }
 
-fn get_cell<'a>(grid: &'a Grid, scroll_offset: usize, row: usize, col: usize) -> &'a Cell {
+fn get_cell(grid: &Grid, scroll_offset: usize, row: usize, col: usize) -> &Cell {
     if scroll_offset == 0 {
         return grid.cell(col, row);
     }
@@ -983,11 +986,11 @@ static BLANK_CELL: Cell = Cell {
 
 fn mode_style(mode: &InputMode) -> (&'static str, u32) {
     match mode {
-        InputMode::Normal => ("NORMAL", 0xFF_89_b4_fa),
-        InputMode::Insert => ("INSERT", 0xFF_a6_e3_a1),
-        InputMode::Visual { .. } => ("VISUAL", 0xFF_cb_a6_f7),
-        InputMode::RenameTab { .. } => ("RENAME", 0xFF_f9_e2_af),
-        InputMode::Search { .. } => ("SEARCH", 0xFF_f9_e2_af),
+        InputMode::Normal => ("NORMAL", 0xff_89_b4_fa),
+        InputMode::Insert => ("INSERT", 0xff_a6_e3_a1),
+        InputMode::Visual { .. } => ("VISUAL", 0xff_cb_a6_f7),
+        InputMode::RenameTab { .. } => ("RENAME", 0xff_f9_e2_af),
+        InputMode::Search { .. } => ("SEARCH", 0xff_f9_e2_af),
     }
 }
 

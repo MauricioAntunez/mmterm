@@ -73,6 +73,7 @@ pub fn handle_ctrl_w(event: &KeyEvent) -> Action {
     ctrl_w_action(&event.logical_key)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_key_inner(
     key: &Key,
     ctrl: bool,
@@ -86,36 +87,34 @@ pub(crate) fn handle_key_inner(
     // ── Global shortcuts (all modes, never sent to PTY) ──────────────────
 
     // Ctrl+W — pane management prefix
-    if ctrl && !shift {
-        if let Key::Character(s) = key {
-            if s.eq_ignore_ascii_case("w") {
-                return Action::CtrlWPrefix;
-            }
-        }
+    if ctrl
+        && !shift
+        && let Key::Character(s) = key
+        && s.eq_ignore_ascii_case("w")
+    {
+        return Action::CtrlWPrefix;
     }
 
     // Ctrl+. — cycle Insert → Normal → Visual
-    if ctrl {
-        if let Key::Character(s) = key {
-            if s == "." {
-                let next = match mode {
-                    InputMode::Insert => InputMode::Normal,
-                    InputMode::Normal => InputMode::Visual {
-                        start_col: 0,
-                        start_row: 0,
-                        cur_col: 0,
-                        cur_row: 0,
-                    },
-                    InputMode::Visual { .. }
-                    | InputMode::RenameTab { .. }
-                    | InputMode::Search { .. } => InputMode::Insert,
-                };
-                return Action::SetMode(next);
-            }
-            // Ctrl+\ — also enters Normal mode (alternative)
-            if s == "\\" || s == "|" {
-                return Action::SetMode(InputMode::Normal);
-            }
+    if ctrl && let Key::Character(s) = key {
+        if s == "." {
+            let next = match mode {
+                InputMode::Insert => InputMode::Normal,
+                InputMode::Normal => InputMode::Visual {
+                    start_col: 0,
+                    start_row: 0,
+                    cur_col: 0,
+                    cur_row: 0,
+                },
+                InputMode::Visual { .. }
+                | InputMode::RenameTab { .. }
+                | InputMode::Search { .. } => InputMode::Insert,
+            };
+            return Action::SetMode(next);
+        }
+        // Ctrl+\ — also enters Normal mode (alternative)
+        if s == "\\" || s == "|" {
+            return Action::SetMode(InputMode::Normal);
         }
     }
 
@@ -134,12 +133,13 @@ pub(crate) fn handle_key_inner(
         }
     }
 
-    if ctrl && !shift {
-        if let Key::Character(s) = key {
-            if s.eq_ignore_ascii_case("c") && matches!(mode, InputMode::Visual { .. }) {
-                return Action::Copy;
-            }
-        }
+    if ctrl
+        && !shift
+        && let Key::Character(s) = key
+        && s.eq_ignore_ascii_case("c")
+        && matches!(mode, InputMode::Visual { .. })
+    {
+        return Action::Copy;
     }
 
     if ctrl && !shift {
@@ -214,16 +214,16 @@ pub(crate) fn ctrl_w_action(key: &Key) -> Action {
 fn handle_insert(key: &Key, ctrl: bool, alt: bool, application_cursor_keys: bool) -> Action {
     // Escape is forwarded to PTY — vim / other TUI apps need it
     if ctrl {
-        if let Key::Character(s) = key {
-            if let Some(c) = s.chars().next() {
-                let raw = c as u32;
-                if raw >= 1 && raw <= 26 {
-                    return Action::SendToPty(vec![raw as u8]);
-                }
-                let lower = (c as u8).to_ascii_lowercase();
-                if lower.is_ascii_alphabetic() {
-                    return Action::SendToPty(vec![lower - b'a' + 1]);
-                }
+        if let Key::Character(s) = key
+            && let Some(c) = s.chars().next()
+        {
+            let raw = c as u32;
+            if (1..=26).contains(&raw) {
+                return Action::SendToPty(vec![raw as u8]);
+            }
+            let lower = (c as u8).to_ascii_lowercase();
+            if lower.is_ascii_alphabetic() {
+                return Action::SendToPty(vec![lower - b'a' + 1]);
             }
         }
         if *key == Key::Named(NamedKey::Enter) {

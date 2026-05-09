@@ -422,9 +422,9 @@ impl App {
             format!("\x1b[<{};{};{}{}", btn, col + 1, row + 1, suffix).into_bytes()
         } else {
             // X10/normal encoding: clamped to 223 to fit in a byte
-            let b = (btn + 32).min(255);
-            let c = ((col + 1 + 32) as u8).min(255);
-            let r = ((row + 1 + 32) as u8).min(255);
+            let b = btn + 32;
+            let c = (col + 1 + 32) as u8;
+            let r = (row + 1 + 32) as u8;
             vec![0x1b, b'[', b'M', b, c, r]
         };
         if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
@@ -602,11 +602,9 @@ impl App {
             Key::Named(NamedKey::Escape) => {
                 self.mode = InputMode::Normal;
             }
-            Key::Named(NamedKey::Enter) => {
-                if !self.search_matches.is_empty() {
-                    let next = (self.search_current + 1) % self.search_matches.len();
-                    self.scroll_to_match(next);
-                }
+            Key::Named(NamedKey::Enter) if !self.search_matches.is_empty() => {
+                let next = (self.search_current + 1) % self.search_matches.len();
+                self.scroll_to_match(next);
             }
             Key::Named(NamedKey::Backspace) => {
                 let mut q = query;
@@ -778,7 +776,7 @@ impl App {
             ConfigAction::Save(cfg) => {
                 let window = self.window.clone();
                 if let Some(w) = window {
-                    self.apply_config(cfg, &w);
+                    self.apply_config(*cfg, &w);
                 }
             }
             ConfigAction::Cancel => {
@@ -808,11 +806,11 @@ impl App {
             return;
         }
 
-        if self.surface_size != (w, h) {
-            if let (Ok(wn), Ok(hn)) = (NonZeroU32::try_from(w), NonZeroU32::try_from(h)) {
-                let _ = surface.resize(wn, hn);
-                self.surface_size = (w, h);
-            }
+        if self.surface_size != (w, h)
+            && let (Ok(wn), Ok(hn)) = (NonZeroU32::try_from(w), NonZeroU32::try_from(h))
+        {
+            let _ = surface.resize(wn, hn);
+            self.surface_size = (w, h);
         }
 
         let mut buf = surface.buffer_mut().unwrap();
@@ -941,7 +939,7 @@ impl App {
             });
         let bell_flash = self.tabs[self.active_tab]
             .bell_flash_until
-            .map_or(false, |t| t > Instant::now());
+            .is_some_and(|t| t > Instant::now());
         self.renderer.draw(
             pixels,
             w,
@@ -1457,10 +1455,11 @@ impl ApplicationHandler for App {
             let mut next = Instant::now() + (blink_dur - elapsed);
             // Wake up early if a bell flash is still active so we clear it on expiry.
             for tab in &self.tabs {
-                if let Some(expiry) = tab.bell_flash_until {
-                    if expiry > Instant::now() && expiry < next {
-                        next = expiry;
-                    }
+                if let Some(expiry) = tab.bell_flash_until
+                    && expiry > Instant::now()
+                    && expiry < next
+                {
+                    next = expiry;
                 }
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(next));

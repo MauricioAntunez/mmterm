@@ -57,7 +57,7 @@ pub struct Field {
 
 pub enum ConfigAction {
     None,
-    Save(Config),
+    Save(Box<Config>),
     Cancel,
 }
 
@@ -172,13 +172,13 @@ impl ConfigPanel {
 
         // 16 palette entries
         let palette = cfg.colors.palette.clone();
-        for i in 0..16 {
+        for (i, label) in PALETTE_LABELS.iter().enumerate() {
             let value = palette
                 .get(i)
                 .cloned()
                 .unwrap_or_else(|| "#000000".to_string());
             fields.push(Field {
-                label: PALETTE_LABELS[i],
+                label,
                 hint: "#RRGGBB",
                 value,
                 kind: FieldKind::HexColor,
@@ -267,7 +267,7 @@ impl ConfigPanel {
         match self.build_config() {
             Ok(cfg) => {
                 self.status = Some("Saved. Font/color changes apply on restart.".into());
-                ConfigAction::Save(cfg)
+                ConfigAction::Save(Box::new(cfg))
             }
             Err(e) => {
                 self.status = Some(format!("Error: {e}"));
@@ -322,8 +322,8 @@ impl ConfigPanel {
         match self.fields[self.selected].kind {
             FieldKind::Text => !val.is_empty(),
             FieldKind::OptText => true,
-            FieldKind::Float => val.parse::<f32>().map_or(false, |v| v > 0.0),
-            FieldKind::UInt => val.parse::<u32>().map_or(false, |v| v > 0),
+            FieldKind::Float => val.parse::<f32>().is_ok_and(|v| v > 0.0),
+            FieldKind::UInt => val.parse::<u32>().is_ok_and(|v| v > 0),
             FieldKind::HexColor => is_valid_hex(val),
             FieldKind::Bool => val == "true" || val == "false",
         }

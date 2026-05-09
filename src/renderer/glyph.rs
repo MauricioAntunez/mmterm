@@ -202,10 +202,10 @@ impl GlyphCache {
         }
 
         // 2. FreeType color emoji — first for wide chars, fallback for narrow ones.
-        if let Some(renderer) = &self.ft_emoji {
-            if let Some(info) = renderer.rasterize(c, px as u32) {
-                return info;
-            }
+        if let Some(renderer) = &self.ft_emoji
+            && let Some(info) = renderer.rasterize(c, px as u32)
+        {
+            return info;
         }
 
         // 3. Outline fallback chain for symbols, CJK, box-drawing, etc.
@@ -320,13 +320,12 @@ fn load_fallback_fonts() -> Vec<Font> {
     let mut fonts = Vec::new();
     for family in &families {
         let names = &[FamilyName::Title(family.to_string())];
-        if let Ok(handle) = source.select_best_match(names, &props) {
-            if let Some(bytes) = font_bytes(handle) {
-                if let Ok(font) = Font::from_bytes(bytes.as_slice(), FontSettings::default()) {
-                    log::info!("Loaded glyph fallback font: {}", family);
-                    fonts.push(font);
-                }
-            }
+        if let Ok(handle) = source.select_best_match(names, &props)
+            && let Some(bytes) = font_bytes(handle)
+            && let Ok(font) = Font::from_bytes(bytes.as_slice(), FontSettings::default())
+        {
+            log::info!("Loaded glyph fallback font: {}", family);
+            fonts.push(font);
         }
     }
     fonts

@@ -8,6 +8,7 @@ pub struct Pane {
 }
 
 impl Pane {
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_colors(
         cols: usize,
         rows: usize,
