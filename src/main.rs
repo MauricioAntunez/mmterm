@@ -1263,7 +1263,9 @@ impl ApplicationHandler for App {
 
                     Action::OpenConfig => self.open_config_panel(),
                     Action::Quit => event_loop.exit(),
-                    Action::ZoomPane => {} // placeholder — not yet implemented
+                    Action::ZoomPane => {
+                        self.tab_mut().zoomed = !self.tab().zoomed;
+                    }
                     Action::None => {}
                 }
             }
