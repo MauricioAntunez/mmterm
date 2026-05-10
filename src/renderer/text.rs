@@ -173,6 +173,19 @@ impl Renderer {
         let [rx, ry, rw, rh] = pane.rect;
         let grid = pane.grid;
 
+        // Pre-fill the entire pane rect so gutter pixels (the fractional strip
+        // at the right/bottom where the cell grid doesn't fully cover the rect)
+        // match the pane background instead of leaking the buf.fill color.
+        let pane_bg32 = color_u32(grid.default_bg);
+        for dy in 0..rh {
+            for dx in 0..rw {
+                let idx = ((ry + dy) * buf_width + rx + dx) as usize;
+                if idx < buf.len() {
+                    buf[idx] = pane_bg32;
+                }
+            }
+        }
+
         let selection_range = if pane.is_active {
             match mode {
                 InputMode::Visual {
@@ -280,14 +293,10 @@ impl Renderer {
                 } else {
                     cell_fg
                 };
-                let bg32 = {
-                    let c = color_u32(bg);
-                    if pane.is_active {
-                        c
-                    } else {
-                        dim_color(c, dim_factor)
-                    }
-                };
+                // Background stays at full saturation in all panes; only
+                // foreground (text, emoji) is dimmed so inactive panes look
+                // visually de-emphasized without shifting the background color.
+                let bg32 = color_u32(bg);
 
                 for dy in 0..m.cell_height {
                     for dx in 0..draw_w {

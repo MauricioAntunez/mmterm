@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - default log directory is now `~/.mmterm` (created automatically) instead of `$HOME`
 - glyph antialiasing now blends in linear light (gamma-2 approximation) instead of sRGB space, producing sharper text
+- inactive split panes no longer shift the background color: only foreground text is dimmed; gutter pixels now correctly match the pane background
 
 ### Documentation
 
