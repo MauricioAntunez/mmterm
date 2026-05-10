@@ -1,5 +1,5 @@
 use crate::terminal::TerminalParser;
-use crate::terminal::grid::Color;
+use crate::terminal::grid::GridColors;
 
 pub struct Pane {
     pub parser: TerminalParser,
@@ -8,29 +8,15 @@ pub struct Pane {
 }
 
 impl Pane {
-    #[allow(clippy::too_many_arguments)]
     pub fn new_with_colors(
         cols: usize,
         rows: usize,
         rect: [u32; 4],
-        fg: Color,
-        bg: Color,
-        cursor: Color,
-        selection: Color,
-        palette: [Color; 16],
+        colors: GridColors,
         scrollback_max: usize,
     ) -> Self {
         Self {
-            parser: TerminalParser::new_with_colors(
-                cols,
-                rows,
-                fg,
-                bg,
-                cursor,
-                selection,
-                palette,
-                scrollback_max,
-            ),
+            parser: TerminalParser::new_with_colors(cols, rows, colors, scrollback_max),
             rect,
             scroll_offset: 0,
         }

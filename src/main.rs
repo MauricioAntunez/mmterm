@@ -26,6 +26,7 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{CursorIcon, Icon, Window, WindowId};
 
 use crate::input::keybindings::Action;
+use crate::terminal::grid::GridColors;
 use crate::ui::layout::{STATUS_BAR_H, TAB_BAR_H};
 
 // ── Per-pane state ───────────────────────────────────────────────────────────
@@ -143,11 +144,13 @@ impl App {
             cols,
             rows,
             rect,
-            c.fg(),
-            c.bg(),
-            c.cursor(),
-            c.selection(),
-            c.palette_colors(),
+            GridColors {
+                fg: c.fg(),
+                bg: c.bg(),
+                cursor: c.cursor(),
+                selection: c.selection(),
+                palette: c.palette_colors(),
+            },
             self.config.terminal.scrollback_lines,
         );
         let (tx, rx) = unbounded::<Vec<u8>>();
@@ -1571,10 +1574,8 @@ impl ApplicationHandler for App {
                     self.close_pane_on_tab(tab_idx, pane_id, event_loop);
                 }
                 self.redraw();
-                if has_more {
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
+                if has_more && let Some(w) = &self.window {
+                    w.request_redraw();
                 }
             }
             _ => {}

@@ -1,4 +1,4 @@
-use super::grid::{Color, Grid};
+use super::grid::{Color, Grid, GridColors};
 use vte::{Params, Parser, Perform};
 
 pub struct TerminalParser {
@@ -10,24 +10,11 @@ impl TerminalParser {
     pub fn new_with_colors(
         cols: usize,
         rows: usize,
-        fg: Color,
-        bg: Color,
-        cursor: Color,
-        selection: Color,
-        palette: [Color; 16],
+        colors: GridColors,
         scrollback_max: usize,
     ) -> Self {
         Self {
-            grid: Grid::with_colors(
-                cols,
-                rows,
-                fg,
-                bg,
-                cursor,
-                selection,
-                palette,
-                scrollback_max,
-            ),
+            grid: Grid::with_colors(cols, rows, colors, scrollback_max),
             parser: Parser::new(),
         }
     }

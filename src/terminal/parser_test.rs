@@ -1,15 +1,17 @@
-use super::super::grid::Color;
+use super::super::grid::{Color, GridColors};
 use super::*;
 
 fn make_parser(cols: usize, rows: usize) -> TerminalParser {
     TerminalParser::new_with_colors(
         cols,
         rows,
-        Color::WHITE,
-        Color::BLACK,
-        Color::CURSOR,
-        Color::SELECTION,
-        [Color::BLACK; 16],
+        GridColors {
+            fg: Color::WHITE,
+            bg: Color::BLACK,
+            cursor: Color::CURSOR,
+            selection: Color::SELECTION,
+            palette: [Color::BLACK; 16],
+        },
         10_000,
     )
 }

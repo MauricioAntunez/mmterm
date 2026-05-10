@@ -4,11 +4,13 @@ fn make_grid(cols: usize, rows: usize) -> Grid {
     Grid::with_colors(
         cols,
         rows,
-        Color::WHITE,
-        Color::BLACK,
-        Color::CURSOR,
-        Color::SELECTION,
-        [Color::BLACK; 16],
+        GridColors {
+            fg: Color::WHITE,
+            bg: Color::BLACK,
+            cursor: Color::CURSOR,
+            selection: Color::SELECTION,
+            palette: [Color::BLACK; 16],
+        },
         10_000,
     )
 }

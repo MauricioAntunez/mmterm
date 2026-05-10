@@ -20,6 +20,14 @@ impl Color {
     pub const SELECTION: Self = Self::rgb(0x45, 0x47, 0x5a);
 }
 
+pub struct GridColors {
+    pub fg: Color,
+    pub bg: Color,
+    pub cursor: Color,
+    pub selection: Color,
+    pub palette: [Color; 16],
+}
+
 #[derive(Clone, Debug)]
 pub struct Cell {
     pub c: char,
@@ -132,13 +140,16 @@ impl Grid {
     pub fn with_colors(
         cols: usize,
         rows: usize,
-        default_fg: Color,
-        default_bg: Color,
-        cursor_color: Color,
-        selection_color: Color,
-        palette: [Color; 16],
+        colors: GridColors,
         scrollback_max: usize,
     ) -> Self {
+        let GridColors {
+            fg: default_fg,
+            bg: default_bg,
+            cursor: cursor_color,
+            selection: selection_color,
+            palette,
+        } = colors;
         let blank = Cell {
             c: ' ',
             fg: default_fg,

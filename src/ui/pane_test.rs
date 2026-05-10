@@ -1,16 +1,18 @@
 use super::*;
-use crate::terminal::grid::Color;
+use crate::terminal::grid::{Color, GridColors};
 
 fn make_pane(cols: usize, rows: usize) -> Pane {
     Pane::new_with_colors(
         cols,
         rows,
         [0, 0, cols as u32 * 8, rows as u32 * 16],
-        Color::WHITE,
-        Color::BLACK,
-        Color::CURSOR,
-        Color::SELECTION,
-        [Color::BLACK; 16],
+        GridColors {
+            fg: Color::WHITE,
+            bg: Color::BLACK,
+            cursor: Color::CURSOR,
+            selection: Color::SELECTION,
+            palette: [Color::BLACK; 16],
+        },
         10_000,
     )
 }
