@@ -15,6 +15,9 @@ detect_urls     = true
 [shell]
 # program = "/bin/zsh"
 
+[terminal]
+scrollback_lines = 10000
+
 [logging]
 # Start logging automatically for every new pane (Ctrl+Shift+L to toggle per-pane)
 auto_log = false

@@ -148,6 +148,7 @@ impl App {
             c.cursor(),
             c.selection(),
             c.palette_colors(),
+            self.config.terminal.scrollback_lines,
         );
         let (tx, rx) = unbounded::<Vec<u8>>();
         let shell = self

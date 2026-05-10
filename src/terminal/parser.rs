@@ -15,9 +15,19 @@ impl TerminalParser {
         cursor: Color,
         selection: Color,
         palette: [Color; 16],
+        scrollback_max: usize,
     ) -> Self {
         Self {
-            grid: Grid::with_colors(cols, rows, fg, bg, cursor, selection, palette),
+            grid: Grid::with_colors(
+                cols,
+                rows,
+                fg,
+                bg,
+                cursor,
+                selection,
+                palette,
+                scrollback_max,
+            ),
             parser: Parser::new(),
         }
     }

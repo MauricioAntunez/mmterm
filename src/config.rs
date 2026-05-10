@@ -21,10 +21,31 @@ pub struct Config {
     pub shell: ShellConfig,
 
     #[serde(default)]
+    pub terminal: TerminalConfig,
+
+    #[serde(default)]
     pub logging: LogConfig,
 
     #[serde(default)]
     pub colors: ColorsConfig,
+}
+
+fn default_scrollback_lines() -> usize {
+    10_000
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalConfig {
+    #[serde(default = "default_scrollback_lines")]
+    pub scrollback_lines: usize,
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            scrollback_lines: default_scrollback_lines(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,8 +174,9 @@ impl Config {
     pub fn load() -> Self {
         let path = config_path();
         match std::fs::read_to_string(&path) {
-            Ok(raw) => match toml::from_str(&raw) {
-                Ok(cfg) => {
+            Ok(raw) => match toml::from_str::<Config>(&raw) {
+                Ok(mut cfg) => {
+                    cfg.terminal.scrollback_lines = cfg.terminal.scrollback_lines.max(100);
                     log::info!("Loaded config from {}", path.display());
                     cfg
                 }

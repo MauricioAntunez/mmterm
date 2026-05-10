@@ -10,6 +10,7 @@ fn make_parser(cols: usize, rows: usize) -> TerminalParser {
         Color::CURSOR,
         Color::SELECTION,
         [Color::BLACK; 16],
+        10_000,
     )
 }
 

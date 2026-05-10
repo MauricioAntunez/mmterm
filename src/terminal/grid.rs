@@ -1,8 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-const SCROLLBACK_MAX: usize = 10_000;
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Color {
     pub r: u8,
@@ -126,6 +124,8 @@ pub struct Grid {
     pub osc_title: Option<String>,
     // Set by BEL (0x07); consumed by App to trigger a visual flash
     pub bell_pending: bool,
+    // Maximum number of scrollback lines
+    pub scrollback_max: usize,
 }
 
 impl Grid {
@@ -137,6 +137,7 @@ impl Grid {
         cursor_color: Color,
         selection_color: Color,
         palette: [Color; 16],
+        scrollback_max: usize,
     ) -> Self {
         let blank = Cell {
             c: ' ',
@@ -186,6 +187,7 @@ impl Grid {
             cwd: None,
             osc_title: None,
             bell_pending: false,
+            scrollback_max,
         }
     }
 
@@ -344,7 +346,7 @@ impl Grid {
                     .map(|c| self.cells[top * cols + c].clone())
                     .collect();
                 self.scrollback.push_back(line);
-                if self.scrollback.len() > SCROLLBACK_MAX {
+                if self.scrollback.len() > self.scrollback_max {
                     self.scrollback.pop_front();
                 }
             }

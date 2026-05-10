@@ -11,6 +11,7 @@ fn make_pane(cols: usize, rows: usize) -> Pane {
         Color::CURSOR,
         Color::SELECTION,
         [Color::BLACK; 16],
+        10_000,
     )
 }
 

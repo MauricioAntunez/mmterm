@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- configurable scrollback buffer size via `scrollback_lines` in `[terminal]` config section (default 10 000, minimum 100)
+
+
 ### Performance
 
 - cap PTY bytes parsed per frame to 256 KB and coalesce wakeup events so high-throughput commands (e.g. `find .`) render progressively in both normal and maximized windows

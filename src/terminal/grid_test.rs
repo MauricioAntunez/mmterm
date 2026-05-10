@@ -9,6 +9,7 @@ fn make_grid(cols: usize, rows: usize) -> Grid {
         Color::CURSOR,
         Color::SELECTION,
         [Color::BLACK; 16],
+        10_000,
     )
 }
 

@@ -18,9 +18,19 @@ impl Pane {
         cursor: Color,
         selection: Color,
         palette: [Color; 16],
+        scrollback_max: usize,
     ) -> Self {
         Self {
-            parser: TerminalParser::new_with_colors(cols, rows, fg, bg, cursor, selection, palette),
+            parser: TerminalParser::new_with_colors(
+                cols,
+                rows,
+                fg,
+                bg,
+                cursor,
+                selection,
+                palette,
+                scrollback_max,
+            ),
             rect,
             scroll_offset: 0,
         }

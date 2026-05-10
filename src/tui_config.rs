@@ -1,4 +1,6 @@
-use crate::config::{ColorsConfig, Config, FontConfig, LogConfig, ShellConfig, WindowConfig};
+use crate::config::{
+    ColorsConfig, Config, FontConfig, LogConfig, ShellConfig, TerminalConfig, WindowConfig,
+};
 
 // Field indices — keep in sync with from_config()
 const F_FONT_FAMILY: usize = 0;
@@ -10,13 +12,14 @@ const F_BLINK_MS: usize = 5;
 const F_DIM: usize = 6;
 const F_DETECT_URLS: usize = 7;
 const F_SHELL: usize = 8;
-const F_LOG_AUTO: usize = 9;
-const F_LOG_DIR: usize = 10;
-const F_COLOR_BG: usize = 11;
-const F_COLOR_FG: usize = 12;
-const F_COLOR_CUR: usize = 13;
-const F_COLOR_SEL: usize = 14;
-const F_PALETTE: usize = 15; // F_PALETTE + 0..15
+const F_SCROLLBACK: usize = 9;
+const F_LOG_AUTO: usize = 10;
+const F_LOG_DIR: usize = 11;
+const F_COLOR_BG: usize = 12;
+const F_COLOR_FG: usize = 13;
+const F_COLOR_CUR: usize = 14;
+const F_COLOR_SEL: usize = 15;
+const F_PALETTE: usize = 16; // F_PALETTE + 0..15
 
 const PALETTE_LABELS: [&str; 16] = [
     "Palette 0  black",
@@ -140,6 +143,14 @@ impl ConfigPanel {
                 value: cfg.shell.program.clone().unwrap_or_default(),
                 kind: FieldKind::OptText,
                 section: Some("Shell"),
+            },
+            // ── Terminal ────────────────────────────────────────────────────
+            Field {
+                label: "Scrollback Lines",
+                hint: "max lines kept in scrollback, e.g. 10000",
+                value: cfg.terminal.scrollback_lines.to_string(),
+                kind: FieldKind::UInt,
+                section: Some("Terminal"),
             },
             // ── Logging ─────────────────────────────────────────────────────
             Field {
@@ -383,6 +394,13 @@ impl ConfigPanel {
             if s.is_empty() { None } else { Some(s) }
         };
 
+        let scrollback_lines = get(F_SCROLLBACK)
+            .parse::<usize>()
+            .map_err(|_| "Invalid scrollback_lines")?;
+        if scrollback_lines == 0 {
+            return Err("Scrollback lines must be > 0".into());
+        }
+
         let auto_log = get(F_LOG_AUTO)
             .parse::<bool>()
             .map_err(|_| "Invalid auto_log — use true or false")?;
@@ -406,6 +424,7 @@ impl ConfigPanel {
                 detect_urls,
             },
             shell: ShellConfig { program: shell },
+            terminal: TerminalConfig { scrollback_lines },
             logging: LogConfig { auto_log, log_dir },
             colors: ColorsConfig {
                 background,
