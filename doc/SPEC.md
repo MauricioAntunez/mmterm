@@ -136,7 +136,7 @@ vim-style modal input, split panes, and multi-tab sessions.
 ### Configuration
 - TOML file at `$XDG_CONFIG_HOME/mmterm/config.toml`
   (created with defaults on first run).
-- Sections: `[font]`, `[window]`, `[shell]`, `[logging]`, `[colors]`.
+- Sections: `[font]`, `[window]`, `[shell]`, `[logging]`, `[colors]`, `[theme]`.
 - In-process TUI config panel: `Ctrl+,` (editable fields, saved on Enter).
 
 | Section | Key | Type | Default |
@@ -152,11 +152,80 @@ vim-style modal input, split panes, and multi-tab sessions.
 | shell | program | string? | `$SHELL` |
 | logging | auto_log | bool | `false` |
 | logging | log_dir | string | `""` (→ `~/.mmterm`) |
-| colors | background | #RRGGBB | `#121212` |
-| colors | foreground | #RRGGBB | `#a0a0a0` |
-| colors | cursor | #RRGGBB | `#bbbbbb` |
-| colors | selection | #RRGGBB | `#3d3d3d` |
-| colors | palette | [#RRGGBB ×16] | Monokai/Hardcore |
+| theme | name | string | `"default"` |
+
+### Themes
+
+Themes define all terminal and UI colors in a single `.toml` file.
+
+**Built-in themes** (installed to `~/.config/mmterm/themes/` on first launch):
+`default`, `catppuccin-mocha`, `dracula`, `gruvbox-dark`, `monokai`, `nord`,
+`one-dark`, `solarized-dark`, `tokyo-night`.
+
+**Selecting a theme** — edit `config.toml`:
+```toml
+[theme]
+name = "dracula"
+```
+Or use the config panel (`Ctrl+,`), navigate to the **Theme** field, and press
+`←` / `→` to cycle through available themes with a live preview.
+
+**Creating a custom theme** — place a `.toml` file in
+`~/.config/mmterm/themes/`:
+```toml
+# ~/.config/mmterm/themes/my-theme.toml
+
+foreground  = "#c0c0c0"
+background  = "#1c1c1c"
+
+# 16-color ANSI palette (indices 0–15)
+color0      = "#1c1c1c"   # black
+color1      = "#cc0000"   # red
+color2      = "#4e9a06"   # green
+color3      = "#c4a000"   # yellow
+color4      = "#3465a4"   # blue
+color5      = "#75507b"   # magenta
+color6      = "#06989a"   # cyan
+color7      = "#d3d7cf"   # white
+color8      = "#555753"   # bright black
+color9      = "#ef2929"   # bright red
+color10     = "#8ae234"   # bright green
+color11     = "#fce94f"   # bright yellow
+color12     = "#729fcf"   # bright blue
+color13     = "#ad7fa8"   # bright magenta
+color14     = "#34e2e2"   # bright cyan
+color15     = "#eeeeec"   # bright white
+
+# UI colors (all optional — derived from the palette if omitted)
+cursor          = "#c0c0c0"   # block cursor color
+selection       = "#555753"   # visual selection background
+search_match    = "#c4a000"   # search highlight background
+search_current  = "#cc0000"   # current search match background
+scrollbar       = "#555753"   # scrollbar thumb at live view
+badge           = "#4e9a06"   # active tab badge
+separator       = "#333333"   # pane and bar separator line
+```
+
+**Required fields:** `foreground`, `background`, `color0`–`color15`.
+
+**Optional UI fields** — if omitted, defaults are derived from the palette:
+
+| Field | Fallback |
+|---|---|
+| `cursor` | `color15` (bright white) |
+| `selection` | `color0` (black) |
+| `search_match` | `color3` (yellow) |
+| `search_current` | `color1` (red) |
+| `scrollbar` | `color8` (bright black) |
+| `badge` | `color2` (green) |
+| `separator` | `color0` (black) |
+
+The file name (without `.toml`) becomes the theme name used in `config.toml`
+and shown in the config panel selector.
+
+**Note:** built-in theme files are written to disk on first launch and can be
+edited as a starting point. mmterm never overwrites user edits to existing
+theme files.
 
 ### Session Logging
 - `Ctrl+Shift+L` — toggle PTY output capture for the active pane.

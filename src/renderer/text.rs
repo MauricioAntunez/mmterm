@@ -2,17 +2,16 @@ use super::glyph::GlyphCache;
 use crate::input::InputMode;
 use crate::terminal::grid::Cell;
 use crate::terminal::{Color, Grid};
+use crate::theme::ResolvedTheme;
 use crate::tui_config::ConfigPanel;
 use crate::ui::layout::TAB_BAR_H;
 
 const STATUS_BAR_H: u32 = 22;
 const BADGE_PAD_X: u32 = 8;
-const SEP_COLOR: u32 = 0xff_31_32_44;
-
-const SEARCH_MATCH_BG: Color = Color::rgb(0xf9, 0xe2, 0xaf);
-const SEARCH_CURRENT_BG: Color = Color::rgb(0xfe, 0x64, 0x0d);
+// Dark color for text rendered on bright-colored badges (readable on any saturated hue).
+const BADGE_FG: u32 = 0xff_11_11_1d;
+// Fixed search match foreground — dark enough for contrast on yellow/orange highlights.
 const SEARCH_MATCH_FG: Color = Color::rgb(0x11, 0x11, 0x1d);
-const HYPERLINK_UL: u32 = 0xff_89_b4_fa; // blue underline for OSC 8 links
 
 pub struct PaneView<'a> {
     pub grid: &'a Grid,
@@ -107,32 +106,30 @@ impl Renderer {
         inactive_dim: f32,
         bell_flash: bool,
         is_logging: bool,
+        theme: &ResolvedTheme,
     ) {
         let bg_fill = panes
             .first()
             .map(|p| p.grid.default_bg)
-            .unwrap_or(Color::BLACK);
+            .unwrap_or(theme.background);
         buf.fill(color_u32(bg_fill));
 
         for pane in panes {
-            self.draw_pane(buf, buf_width, pane, mode, metrics, inactive_dim);
+            self.draw_pane(buf, buf_width, pane, mode, metrics, inactive_dim, theme);
         }
 
         // Draw separators
+        let sep_color = color_u32(theme.separator);
         for &[sx, sy, sw, sh] in separators {
-            let color = SEP_COLOR;
             for dy in 0..sh {
                 for dx in 0..sw {
                     let idx = ((sy + dy) * buf_width + sx + dx) as usize;
                     if idx < buf.len() {
-                        buf[idx] = color;
+                        buf[idx] = sep_color;
                     }
                 }
             }
         }
-
-        // Active pane: highlight left edge of its separator(s)
-        // (top-edge highlight removed — tab bar serves that role)
 
         if bell_flash {
             let flash_color = 0xff_ff_ff_ff_u32;
@@ -148,7 +145,7 @@ impl Renderer {
             }
         }
 
-        self.draw_tab_bar(buf, buf_width, tab_titles);
+        self.draw_tab_bar(buf, buf_width, tab_titles, theme);
         self.draw_status_bar(
             buf,
             buf_width,
@@ -158,9 +155,11 @@ impl Renderer {
             search_current,
             cwd,
             is_logging,
+            theme,
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_pane(
         &mut self,
         buf: &mut [u32],
@@ -169,6 +168,7 @@ impl Renderer {
         mode: &InputMode,
         m: &FontMetrics,
         dim_factor: f32,
+        theme: &ResolvedTheme,
     ) {
         let [rx, ry, rw, rh] = pane.rect;
         let grid = pane.grid;
@@ -271,9 +271,9 @@ impl Renderer {
                 let bg = if is_cursor {
                     grid.cursor_color
                 } else if is_current_match {
-                    SEARCH_CURRENT_BG
+                    theme.search_current
                 } else if in_match {
-                    SEARCH_MATCH_BG
+                    theme.search_match
                 } else if is_selected {
                     grid.selection_color
                 } else {
@@ -380,11 +380,12 @@ impl Renderer {
 
                 // Underline (1px, 2px from bottom): SGR 4 or OSC 8 hyperlink
                 if cell.underline || cell.url.is_some() {
+                    let hyperlink_ul = color_u32(theme.palette[4]); // blue
                     let ul_color = if cell.url.is_some() {
                         if pane.is_active {
-                            HYPERLINK_UL
+                            hyperlink_ul
                         } else {
-                            dim_color(HYPERLINK_UL, dim_factor)
+                            dim_color(hyperlink_ul, dim_factor)
                         }
                     } else {
                         color_u32(fg)
@@ -444,10 +445,11 @@ impl Renderer {
 
             let bar_x = rx + rw - 4;
             let thumb_color = if pane.scroll_offset > 0 {
-                0xff_89_b4_fa_u32 // blue when scrolled up
+                color_u32(theme.palette[4]) // blue when scrolled up
             } else {
-                0xff_45_47_58_u32 // dim gray at live view
+                color_u32(theme.scrollbar) // dim at live view
             };
+            let track_overlay = color_u32(theme.background);
 
             for dy in 0..rh {
                 let sy = ry + dy;
@@ -455,7 +457,7 @@ impl Renderer {
                 for dx in 0..4u32 {
                     let idx = (sy * buf_width + bar_x + dx) as usize;
                     if idx < buf.len() {
-                        buf[idx] = blend(buf[idx], 0xff_11_11_1d, 160);
+                        buf[idx] = blend(buf[idx], track_overlay, 160);
                     }
                 }
                 // Thumb: 2px wide, 1px inset from each side
@@ -471,9 +473,15 @@ impl Renderer {
         }
     }
 
-    fn draw_tab_bar(&mut self, buf: &mut [u32], width: u32, tabs: &[(String, bool, bool)]) {
-        let bar_bg = 0xff_11_11_1d_u32;
-        let sep_col = 0xff_31_32_44_u32;
+    fn draw_tab_bar(
+        &mut self,
+        buf: &mut [u32],
+        width: u32,
+        tabs: &[(String, bool, bool)],
+        theme: &ResolvedTheme,
+    ) {
+        let bar_bg = dim_color(color_u32(theme.background), 0.75);
+        let sep_col = color_u32(theme.separator);
         let fp = self.status_font_px;
         let cw = self.glyphs.rasterize('M', fp, false).1;
 
@@ -499,9 +507,12 @@ impl Renderer {
         for (label, is_active, has_activity) in tabs {
             let tab_w = label.len() as u32 * cw + 12;
             let (badge_bg, text_color) = if *is_active {
-                (0xff_89_b4_fa_u32, 0xff_11_11_1d_u32)
+                (color_u32(theme.badge), BADGE_FG)
             } else {
-                (0xff_24_25_3a_u32, 0xff_58_5b_70_u32)
+                (
+                    dim_color(color_u32(theme.background), 0.85),
+                    color_u32(theme.palette[8]),
+                )
             };
 
             // Badge fill
@@ -530,7 +541,7 @@ impl Renderer {
             // Activity dot: small filled square in the top-right corner of the badge
             if *has_activity && !*is_active {
                 const DOT: u32 = 4;
-                let dot_color = 0xff_f3_8b_a8_u32; // pink
+                let dot_color = color_u32(theme.palette[1]); // red/pink
                 let dot_x = cursor_x + tab_w.saturating_sub(DOT + 3);
                 let dot_y = 4u32;
                 for dy in 0..DOT {
@@ -699,7 +710,7 @@ impl Renderer {
             }
 
             // Color swatch for hex fields
-            if field.kind == crate::tui_config::FieldKind::HexColor {
+            if matches!(field.kind, crate::tui_config::FieldKind::HexColor) {
                 let hex = panel.display_value(i);
                 if let Ok(n) = u32::from_str_radix(hex.trim_start_matches('#'), 16) {
                     let swatch_color = 0xff_00_00_00 | n;
@@ -717,13 +728,14 @@ impl Renderer {
             }
 
             let label_color = if is_sel { 0xff_f9_e2_af } else { 0xff_ba_c2_de };
+            let is_select = matches!(field.kind, crate::tui_config::FieldKind::Select(_));
             let cursor_str = if is_editing { "_" } else { "" };
-            let text = format!(
-                "{:<18} {}{}",
-                field.label,
-                panel.display_value(i),
-                cursor_str
-            );
+            let value_display = if is_select && is_sel {
+                format!("\u{2190} {} \u{2192}", panel.display_value(i))
+            } else {
+                format!("{}{}", panel.display_value(i), cursor_str)
+            };
+            let text = format!("{:<18} {}", field.label, value_display);
             self.draw_str(
                 buf,
                 bw,
@@ -854,9 +866,11 @@ impl Renderer {
         search_current: usize,
         cwd: Option<&str>,
         is_logging: bool,
+        theme: &ResolvedTheme,
     ) {
         let bar_y = height.saturating_sub(STATUS_BAR_H);
-        let bar_bg = 0xff_18_18_25_u32;
+        let bar_bg = dim_color(color_u32(theme.background), 0.85);
+        let sep_color = color_u32(theme.separator);
 
         for y in bar_y..height {
             for x in 0..width {
@@ -870,13 +884,13 @@ impl Renderer {
             for x in 0..width {
                 let idx = (bar_y * width + x) as usize;
                 if idx < buf.len() {
-                    buf[idx] = 0xff_31_32_44;
+                    buf[idx] = sep_color;
                 }
             }
         }
 
-        let (label, badge_color) = mode_style(mode);
-        let badge_fg = 0xff_11_11_1d_u32;
+        let (label, badge_color) = mode_style(mode, theme);
+        let badge_fg = BADGE_FG;
         let px = self.status_font_px;
         let char_w = self.glyphs.rasterize('M', px, true).1;
         let badge_w = label.len() as u32 * char_w + BADGE_PAD_X * 2;
@@ -936,7 +950,7 @@ impl Renderer {
                 &info,
                 px,
                 false,
-                0xff_ba_c2_de,
+                color_u32(theme.palette[15]),
             );
         }
 
@@ -944,7 +958,7 @@ impl Renderer {
         if is_logging {
             let rec_label = "\u{25cf} REC";
             let rec_w = rec_label.len() as u32 * char_w + BADGE_PAD_X * 2;
-            let rec_color = 0xff_f3_8b_a8_u32; // pink/red
+            let rec_color = color_u32(theme.palette[1]); // red/pink
             let rec_x = badge_x + badge_w + 8;
             for dy in 0..badge_h {
                 for dx in 0..rec_w {
@@ -993,7 +1007,7 @@ impl Renderer {
                     path,
                     px,
                     false,
-                    0xff_58_5b_70,
+                    color_u32(theme.palette[8]),
                 );
             }
         }
@@ -1040,13 +1054,13 @@ static BLANK_CELL: Cell = Cell {
     url: None,
 };
 
-fn mode_style(mode: &InputMode) -> (&'static str, u32) {
+fn mode_style(mode: &InputMode, theme: &ResolvedTheme) -> (&'static str, u32) {
     match mode {
-        InputMode::Normal => ("NORMAL", 0xff_89_b4_fa),
-        InputMode::Insert => ("INSERT", 0xff_a6_e3_a1),
-        InputMode::Visual { .. } => ("VISUAL", 0xff_cb_a6_f7),
-        InputMode::RenameTab { .. } => ("RENAME", 0xff_f9_e2_af),
-        InputMode::Search { .. } => ("SEARCH", 0xff_f9_e2_af),
+        InputMode::Normal => ("NORMAL", color_u32(theme.palette[4])),
+        InputMode::Insert => ("INSERT", color_u32(theme.palette[2])),
+        InputMode::Visual { .. } => ("VISUAL", color_u32(theme.palette[5])),
+        InputMode::RenameTab { .. } => ("RENAME", color_u32(theme.palette[3])),
+        InputMode::Search { .. } => ("SEARCH", color_u32(theme.palette[3])),
     }
 }
 

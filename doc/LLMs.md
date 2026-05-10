@@ -18,6 +18,8 @@ Full spec: `doc/SPEC.md`. This file is the dense implementation reference.
 | `src/ui/layout.rs` | `Layout`, `SplitDir`, `Node` (binary-tree pane splits) |
 | `src/ui/pane.rs` | `Pane` — scroll offset, selection, cursor |
 | `src/config.rs` | `Config`, `*Config` structs — TOML load/save |
+| `src/theme.rs` | `ResolvedTheme`, `load_theme()`, `install_bundled_themes()` |
+| `src/themes/*.toml` | 9 bundled theme files embedded via `include_str!` |
 | `src/tui_config.rs` | `ConfigPanel`, `Field` — in-process config editor |
 
 Constants in `src/ui/layout.rs`: `TAB_BAR_H = 22`, `STATUS_BAR_H = 22`.
@@ -67,6 +69,7 @@ struct App {
     config: Config,
     config_panel: Option<ConfigPanel>,
     hovered_url: Option<String>,
+    theme: ResolvedTheme,         // active theme; drives all color rendering
 }
 
 struct TabState {
@@ -200,9 +203,52 @@ Use `tab.metrics` (session-scoped). Never use `renderer.font_px` for layout.
 
 ```rust
 renderer.make_metrics(font_px) -> FontMetrics
-renderer.draw(buf, buf_width, buf_height, panes: &[PaneView], separators, ...)
+renderer.draw(buf, buf_width, buf_height, panes: &[PaneView], separators, ..., theme: &ResolvedTheme)
 renderer.draw_config_panel(buf, bw, bh, panel)
 ```
+
+## Theme System (`src/theme.rs`)
+
+`ResolvedTheme` is the single source of truth for all colors at runtime.
+It is stored on `App` and passed to the renderer on every frame.
+
+```rust
+pub struct ResolvedTheme {
+    pub foreground:     Color,   // terminal default fg
+    pub background:     Color,   // terminal default bg
+    pub cursor:         Color,   // block cursor
+    pub selection:      Color,   // visual selection bg
+    pub palette:        [Color; 16],  // ANSI 0–15
+    // UI chrome
+    pub search_match:   Color,   // search highlight bg
+    pub search_current: Color,   // current match bg
+    pub scrollbar:      Color,   // scrollbar thumb at live view
+    pub badge:          Color,   // active tab badge
+    pub separator:      Color,   // pane + bar separator line
+}
+```
+
+Key functions:
+```rust
+load_theme(name: &str, themes_dir: &Path) -> Result<ResolvedTheme, String>
+install_bundled_themes(themes_dir: &Path)   // writes .toml files if missing
+list_themes(themes_dir: &Path) -> Vec<String>  // sorted names
+default_theme() -> ResolvedTheme            // BUNDLED[0] = "default"
+themes_dir() -> PathBuf                     // ~/.config/mmterm/themes/
+```
+
+Color sources in the renderer:
+- Tab bar badge (active): `theme.badge`
+- Tab bar badge (inactive): dimmed `theme.background`
+- Tab bar / status bar separator: `theme.separator`
+- Mode badges (NORMAL/INSERT/VISUAL/SEARCH): `theme.palette[4/2/5/3]`
+- Scrollbar thumb (scrolled / live): `theme.palette[4]` / `theme.scrollbar`
+- Hyperlink underline: `theme.palette[4]`
+- Activity dot, REC badge: `theme.palette[1]`
+
+Adding a new theme-driven color: add the field to `ResolvedTheme`,
+add it to `ThemeFile` (optional), provide a palette-derived default in
+`resolve()`, add to all 9 bundled `.toml` files, update `draw()`.
 
 ## Critical Invariants
 

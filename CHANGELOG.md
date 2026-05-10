@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - configurable scrollback buffer size via `scrollback_lines` in `[terminal]` config section (default 10 000, minimum 100)
 
+- theme system: 9 built-in themes (default, catppuccin-mocha, dracula, gruvbox-dark, monokai, nord, one-dark, solarized-dark, tokyo-night) installed to `~/.config/mmterm/themes/` on first launch
+- theme selector in the config panel (← / → to cycle with live preview)
+- `[theme] name` field in `config.toml`; custom themes can be added as `.toml` files in `~/.config/mmterm/themes/`
+- tab bar, status bar, scrollbar, search highlights, and pane separators now use theme colors
 
 ### Performance
 

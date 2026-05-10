@@ -3,6 +3,7 @@ mod input;
 mod pty;
 mod renderer;
 mod terminal;
+mod theme;
 mod tui_config;
 mod ui;
 
@@ -27,6 +28,7 @@ use winit::window::{CursorIcon, Icon, Window, WindowId};
 
 use crate::input::keybindings::Action;
 use crate::terminal::grid::GridColors;
+use crate::theme::{ResolvedTheme, default_theme, install_bundled_themes, load_theme, themes_dir};
 use crate::ui::layout::{STATUS_BAR_H, TAB_BAR_H};
 
 // ── Per-pane state ───────────────────────────────────────────────────────────
@@ -85,11 +87,18 @@ struct App {
     // from an Alt+Tab window switch isn't forwarded to the PTY.
     swallow_next_tab: bool,
     wakeup_pending: Arc<AtomicBool>,
+    theme: ResolvedTheme,
 }
 
 impl App {
     fn new(config: Config, proxy: EventLoopProxy<()>) -> Self {
         let renderer = Renderer::new(&config.font.family, config.font.size);
+        let td = themes_dir();
+        install_bundled_themes(&td);
+        let theme = load_theme(&config.theme.name, &td).unwrap_or_else(|e| {
+            log::warn!("{e} — using default theme");
+            default_theme()
+        });
         Self {
             window: None,
             surface: None,
@@ -114,6 +123,7 @@ impl App {
             hovered_url: None,
             swallow_next_tab: false,
             wakeup_pending: Arc::new(AtomicBool::new(false)),
+            theme,
         }
     }
 
@@ -139,17 +149,17 @@ impl App {
         self.next_pane_id += 1;
         let [_, _, w, h] = rect;
         let (cols, rows) = self.tabs[tab_idx].metrics.grid_size_for(w, h);
-        let c = &self.config.colors;
+        let t = &self.theme;
         let pane = Pane::new_with_colors(
             cols,
             rows,
             rect,
             GridColors {
-                fg: c.fg(),
-                bg: c.bg(),
-                cursor: c.cursor(),
-                selection: c.selection(),
-                palette: c.palette_colors(),
+                fg: t.foreground,
+                bg: t.background,
+                cursor: t.cursor,
+                selection: t.selection,
+                palette: t.palette,
             },
             self.config.terminal.scrollback_lines,
         );
@@ -800,10 +810,31 @@ impl App {
     }
 
     fn apply_config(&mut self, new_cfg: Config, window: &Window) {
+        let td = themes_dir();
+        let new_theme = load_theme(&new_cfg.theme.name, &td).unwrap_or_else(|e| {
+            log::warn!("{e} — keeping current theme");
+            self.theme.clone()
+        });
+        self.theme = new_theme;
+        self.reseed_pane_palettes();
         new_cfg.save();
         window.set_title(&new_cfg.window.title);
         self.config = new_cfg;
         self.config_panel = None;
+    }
+
+    fn reseed_pane_palettes(&mut self) {
+        let t = &self.theme;
+        for tab in &mut self.tabs {
+            for entry in tab.panes.values_mut() {
+                let g = &mut entry.pane.parser.grid;
+                g.palette = t.palette;
+                g.default_fg = t.foreground;
+                g.default_bg = t.background;
+                g.cursor_color = t.cursor;
+                g.selection_color = t.selection;
+            }
+        }
     }
 
     fn handle_rename_key(&mut self, event: &winit::event::KeyEvent) {
@@ -850,6 +881,8 @@ impl App {
             Key::Named(NamedKey::Backspace) => panel.handle_backspace(),
             Key::Named(NamedKey::ArrowUp) => panel.handle_up(),
             Key::Named(NamedKey::ArrowDown) => panel.handle_down(),
+            Key::Named(NamedKey::ArrowLeft) => panel.handle_left(),
+            Key::Named(NamedKey::ArrowRight) => panel.handle_right(),
             Key::Named(NamedKey::Space) => panel.handle_char(' '),
             Key::Character(s) => {
                 if ctrl && s.eq_ignore_ascii_case("s") {
@@ -871,6 +904,16 @@ impl App {
             }
             ConfigAction::Cancel => {
                 self.config_panel = None;
+            }
+            ConfigAction::PreviewTheme(name) => {
+                let td = themes_dir();
+                match load_theme(&name, &td) {
+                    Ok(t) => {
+                        self.theme = t;
+                        self.reseed_pane_palettes();
+                    }
+                    Err(e) => log::warn!("{e}"),
+                }
             }
             ConfigAction::None => {}
         }
@@ -1046,6 +1089,7 @@ impl App {
             self.config.window.inactive_dim,
             bell_flash,
             is_logging,
+            &self.theme,
         );
 
         if let Some(panel) = &self.config_panel {

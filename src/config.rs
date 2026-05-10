@@ -28,6 +28,27 @@ pub struct Config {
 
     #[serde(default)]
     pub colors: ColorsConfig,
+
+    #[serde(default)]
+    pub theme: ThemeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeConfig {
+    #[serde(default = "default_theme_name")]
+    pub name: String,
+}
+
+fn default_theme_name() -> String {
+    "default".into()
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            name: default_theme_name(),
+        }
+    }
 }
 
 fn default_scrollback_lines() -> usize {
@@ -107,6 +128,7 @@ pub struct ColorsConfig {
     pub palette: Vec<String>,
 }
 
+#[allow(dead_code)]
 impl ColorsConfig {
     pub fn bg(&self) -> Color {
         parse_hex(&self.background)

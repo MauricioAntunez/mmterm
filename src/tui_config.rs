@@ -1,6 +1,8 @@
 use crate::config::{
-    ColorsConfig, Config, FontConfig, LogConfig, ShellConfig, TerminalConfig, WindowConfig,
+    ColorsConfig, Config, FontConfig, LogConfig, ShellConfig, TerminalConfig, ThemeConfig,
+    WindowConfig,
 };
+use crate::theme::{list_themes, themes_dir};
 
 // Field indices — keep in sync with from_config()
 const F_FONT_FAMILY: usize = 0;
@@ -15,11 +17,12 @@ const F_SHELL: usize = 8;
 const F_SCROLLBACK: usize = 9;
 const F_LOG_AUTO: usize = 10;
 const F_LOG_DIR: usize = 11;
-const F_COLOR_BG: usize = 12;
-const F_COLOR_FG: usize = 13;
-const F_COLOR_CUR: usize = 14;
-const F_COLOR_SEL: usize = 15;
-const F_PALETTE: usize = 16; // F_PALETTE + 0..15
+const F_THEME_NAME: usize = 12;
+const F_COLOR_BG: usize = 13;
+const F_COLOR_FG: usize = 14;
+const F_COLOR_CUR: usize = 15;
+const F_COLOR_SEL: usize = 16;
+const F_PALETTE: usize = 17; // F_PALETTE + 0..15
 
 const PALETTE_LABELS: [&str; 16] = [
     "Palette 0  black",
@@ -46,8 +49,9 @@ pub enum FieldKind {
     Float,
     UInt,
     OptText,
-    HexColor, // #RRGGBB
-    Bool,     // "true" | "false"
+    HexColor,            // #RRGGBB
+    Bool,                // "true" | "false"
+    Select(Vec<String>), // cyclic list; field.value holds the selected name
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +68,7 @@ pub enum ConfigAction {
     None,
     Save(Box<Config>),
     Cancel,
+    PreviewTheme(String),
 }
 
 pub struct ConfigPanel {
@@ -166,6 +171,14 @@ impl ConfigPanel {
                 value: cfg.logging.log_dir.clone(),
                 kind: FieldKind::OptText,
                 section: None,
+            },
+            // ── Theme ───────────────────────────────────────────────────────
+            Field {
+                label: "Theme",
+                hint: "← / → to cycle  (changes apply immediately as preview)",
+                value: cfg.theme.name.clone(),
+                kind: FieldKind::Select(list_themes(&themes_dir())),
+                section: Some("Theme"),
             },
             // ── Colors ──────────────────────────────────────────────────────
             Field {
@@ -278,6 +291,12 @@ impl ConfigPanel {
         self.move_down();
         ConfigAction::None
     }
+    pub fn handle_left(&mut self) -> ConfigAction {
+        self.cycle_select(-1)
+    }
+    pub fn handle_right(&mut self) -> ConfigAction {
+        self.cycle_select(1)
+    }
 
     pub fn handle_escape(&mut self) -> ConfigAction {
         if self.editing {
@@ -317,6 +336,9 @@ impl ConfigPanel {
     }
 
     fn start_edit(&mut self) {
+        if matches!(self.fields[self.selected].kind, FieldKind::Select(_)) {
+            return;
+        }
         self.edit_buf = self.fields[self.selected].value.clone();
         self.editing = true;
         self.status = None;
@@ -325,8 +347,7 @@ impl ConfigPanel {
     fn confirm_edit(&mut self) {
         let val = self.edit_buf.clone();
         if self.validate(&val) {
-            // Normalize hex: ensure leading #
-            let normalized = if self.fields[self.selected].kind == FieldKind::HexColor {
+            let normalized = if matches!(self.fields[self.selected].kind, FieldKind::HexColor) {
                 normalize_hex(&val)
             } else {
                 val
@@ -346,14 +367,31 @@ impl ConfigPanel {
         self.editing = false;
     }
 
+    fn cycle_select(&mut self, delta: i32) -> ConfigAction {
+        let field = &mut self.fields[self.selected];
+        let FieldKind::Select(options) = &field.kind else {
+            return ConfigAction::None;
+        };
+        if options.is_empty() {
+            return ConfigAction::None;
+        }
+        let cur = options.iter().position(|o| o == &field.value).unwrap_or(0);
+        let len = options.len();
+        let next = ((cur as i32 + delta).rem_euclid(len as i32)) as usize;
+        let name = options[next].clone();
+        field.value = name.clone();
+        ConfigAction::PreviewTheme(name)
+    }
+
     fn validate(&self, val: &str) -> bool {
-        match self.fields[self.selected].kind {
+        match &self.fields[self.selected].kind {
             FieldKind::Text => !val.is_empty(),
             FieldKind::OptText => true,
             FieldKind::Float => val.parse::<f32>().is_ok_and(|v| v > 0.0),
             FieldKind::UInt => val.parse::<u32>().is_ok_and(|v| v > 0),
             FieldKind::HexColor => is_valid_hex(val),
             FieldKind::Bool => val == "true" || val == "false",
+            FieldKind::Select(_) => true,
         }
     }
 
@@ -406,6 +444,8 @@ impl ConfigPanel {
             .map_err(|_| "Invalid auto_log — use true or false")?;
         let log_dir = get(F_LOG_DIR);
 
+        let theme_name = get(F_THEME_NAME);
+
         let background = get(F_COLOR_BG);
         let foreground = get(F_COLOR_FG);
         let cursor = get(F_COLOR_CUR);
@@ -433,6 +473,7 @@ impl ConfigPanel {
                 selection,
                 palette,
             },
+            theme: ThemeConfig { name: theme_name },
         })
     }
 
