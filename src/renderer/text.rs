@@ -24,6 +24,8 @@ pub struct PaneView<'a> {
     /// Match positions (abs_row, start_col, len) sorted by abs_row. abs_row = scrollback_len + grid_row.
     pub search_matches: &'a [(usize, usize, usize)],
     pub search_current: Option<usize>,
+    /// URL currently hovered by the mouse; only cells with this URL get an underline.
+    pub hovered_url: Option<&'a str>,
 }
 
 /// Cell layout metrics derived from a specific font size.
@@ -378,10 +380,12 @@ impl Renderer {
                     }
                 }
 
-                // Underline (1px, 2px from bottom): SGR 4 or OSC 8 hyperlink
-                if cell.underline || cell.url.is_some() {
+                // Underline (1px, 2px from bottom): SGR 4 or OSC 8 hyperlink (only when hovered)
+                let url_hovered =
+                    cell_url_hovered(cell.url.as_ref().map(|u| u.as_str()), pane.hovered_url);
+                if cell.underline || url_hovered {
                     let hyperlink_ul = color_u32(theme.palette[4]); // blue
-                    let ul_color = if cell.url.is_some() {
+                    let ul_color = if url_hovered {
                         if pane.is_active {
                             hyperlink_ul
                         } else {
@@ -1075,6 +1079,13 @@ fn dim_color(c: u32, factor: f32) -> u32 {
     (0xFF << 24) | (r << 16) | (g << 8) | b
 }
 
+fn cell_url_hovered(cell_url: Option<&str>, hovered_url: Option<&str>) -> bool {
+    match (cell_url, hovered_url) {
+        (Some(cu), Some(hu)) => cu == hu,
+        _ => false,
+    }
+}
+
 fn blend(bg: u32, fg: u32, alpha: u8) -> u32 {
     let a = alpha as u32;
     let inv = 255 - a;
@@ -1092,7 +1103,7 @@ fn blend(bg: u32, fg: u32, alpha: u8) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::blend;
+    use super::{blend, cell_url_hovered};
 
     #[test]
     fn blend_transparent_returns_bg() {
@@ -1115,5 +1126,36 @@ mod tests {
         let result = blend(0xff_00_00_00, 0xff_ff_ff_ff, 128);
         let ch = result & 0xFF;
         assert!(ch > 128, "expected gamma-correct midpoint > 128, got {ch}");
+    }
+
+    #[test]
+    fn url_hovered_matches_same_url() {
+        assert!(cell_url_hovered(
+            Some("https://example.com"),
+            Some("https://example.com")
+        ));
+    }
+
+    #[test]
+    fn url_hovered_no_match_when_different_url() {
+        assert!(!cell_url_hovered(
+            Some("https://example.com"),
+            Some("https://other.com")
+        ));
+    }
+
+    #[test]
+    fn url_hovered_no_match_when_hovered_none() {
+        assert!(!cell_url_hovered(Some("https://example.com"), None));
+    }
+
+    #[test]
+    fn url_hovered_no_match_when_cell_has_no_url() {
+        assert!(!cell_url_hovered(None, Some("https://example.com")));
+    }
+
+    #[test]
+    fn url_hovered_no_match_when_both_none() {
+        assert!(!cell_url_hovered(None, None));
     }
 }

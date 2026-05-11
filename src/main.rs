@@ -991,6 +991,7 @@ impl App {
                     blink_visible: self.cursor_blink,
                     search_matches: sm,
                     search_current: sc,
+                    hovered_url: self.hovered_url.as_deref(),
                 }]
             } else {
                 vec![]
@@ -1019,6 +1020,7 @@ impl App {
                         blink_visible: self.cursor_blink,
                         search_matches: sm,
                         search_current: sc,
+                        hovered_url: self.hovered_url.as_deref(),
                     })
                 })
                 .collect()
@@ -1494,7 +1496,13 @@ impl ApplicationHandler for App {
                 if let Some(w) = &self.window {
                     w.set_cursor(icon);
                 }
+                let url_changed = self.hovered_url != url;
                 self.hovered_url = url;
+                if url_changed {
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
+                }
                 let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
                 if mouse_mode >= 1002 {
                     // Button-motion or any-motion: report if button is held (selecting) or always
