@@ -1498,10 +1498,8 @@ impl ApplicationHandler for App {
                 }
                 let url_changed = self.hovered_url != url;
                 self.hovered_url = url;
-                if url_changed {
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
+                if url_changed && let Some(w) = &self.window {
+                    w.request_redraw();
                 }
                 let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
                 if mouse_mode >= 1002 {

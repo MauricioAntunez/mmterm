@@ -224,3 +224,28 @@ palette = []
     assert!(!cfg.logging.auto_log);
     assert!(cfg.logging.log_dir.is_empty());
 }
+
+#[test]
+fn default_scrollback_lines_value() {
+    assert_eq!(default_scrollback_lines(), 10_000);
+}
+
+#[test]
+fn default_log_dir_is_empty_string() {
+    assert!(default_log_dir().is_empty());
+}
+
+#[test]
+fn config_roundtrip_preserves_scrollback_lines() {
+    let mut cfg = Config::default();
+    cfg.terminal.scrollback_lines = 5000;
+    let s = toml::to_string_pretty(&cfg).expect("serialize failed");
+    let restored: Config = toml::from_str(&s).expect("deserialize failed");
+    assert_eq!(restored.terminal.scrollback_lines, 5000);
+}
+
+#[test]
+fn terminal_config_default_scrollback_is_ten_thousand() {
+    let tc = TerminalConfig::default();
+    assert_eq!(tc.scrollback_lines, 10_000);
+}

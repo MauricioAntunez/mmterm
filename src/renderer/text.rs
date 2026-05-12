@@ -1103,7 +1103,319 @@ fn blend(bg: u32, fg: u32, alpha: u8) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{blend, cell_url_hovered};
+    use super::{
+        PaneView, Renderer, blend, cell_url_hovered, color_u32, dim_color, get_cell, mode_style,
+    };
+    use crate::InputMode;
+    use crate::config::Config;
+    use crate::terminal::Grid;
+    use crate::terminal::grid::{Color, GridColors};
+    use crate::theme::default_theme;
+    use crate::tui_config::ConfigPanel;
+
+    fn make_renderer() -> Renderer {
+        Renderer::new("JetBrainsMono", 16.0)
+    }
+
+    fn make_grid(cols: usize, rows: usize) -> Grid {
+        Grid::with_colors(
+            cols,
+            rows,
+            GridColors {
+                fg: Color::WHITE,
+                bg: Color::BLACK,
+                cursor: Color::CURSOR,
+                selection: Color::SELECTION,
+                palette: [Color::BLACK; 16],
+            },
+            10_000,
+        )
+    }
+
+    #[test]
+    fn font_metrics_compute_returns_positive_cell_size() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        assert!(m.cell_width > 0);
+        assert!(m.cell_height > 0);
+        assert!(m.baseline > 0);
+    }
+
+    #[test]
+    fn font_metrics_grid_size_for_standard_window() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let (cols, rows) = m.grid_size_for(800, 600);
+        assert!(cols > 0);
+        assert!(rows > 0);
+    }
+
+    #[test]
+    fn font_metrics_grid_size_for_small_window() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let (cols, rows) = m.grid_size_for(1, 1);
+        assert_eq!(cols, 1);
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn color_u32_packs_rgb_correctly() {
+        let c = Color::rgb(0x12, 0x34, 0x56);
+        let u = color_u32(c);
+        assert_eq!((u >> 24) & 0xFF, 0xFF);
+        assert_eq!((u >> 16) & 0xFF, 0x12);
+        assert_eq!((u >> 8) & 0xFF, 0x34);
+        assert_eq!(u & 0xFF, 0x56);
+    }
+
+    #[test]
+    fn dim_color_factor_zero_returns_black() {
+        let dimmed = dim_color(0xff_80_80_80, 0.0);
+        assert_eq!(dimmed & 0x00_ff_ff_ff, 0);
+    }
+
+    #[test]
+    fn dim_color_factor_one_returns_identity() {
+        let c = 0xff_80_40_20u32;
+        let dimmed = dim_color(c, 1.0);
+        assert_eq!((dimmed >> 16) & 0xFF, 0x80);
+        assert_eq!((dimmed >> 8) & 0xFF, 0x40);
+        assert_eq!(dimmed & 0xFF, 0x20);
+    }
+
+    #[test]
+    fn get_cell_from_live_grid() {
+        let grid = make_grid(80, 24);
+        let cell = get_cell(&grid, 0, 0, 0);
+        assert_eq!(cell.c, ' ');
+    }
+
+    #[test]
+    fn get_cell_out_of_bounds_returns_blank() {
+        let grid = make_grid(80, 24);
+        // Large scroll_offset with large row → lands past both scrollback and live grid.
+        let cell = get_cell(&grid, 9999, 9999, 0);
+        assert_eq!(cell.c, ' ');
+    }
+
+    #[test]
+    fn get_cell_scrollback_col_out_of_bounds_returns_blank() {
+        let mut grid = make_grid(80, 24);
+        // Push a line into scrollback with scroll_up.
+        grid.scroll_up(1);
+        if !grid.scrollback.is_empty() {
+            // col well beyond line length → BLANK_CELL
+            let cell = get_cell(&grid, 1, 0, 9999);
+            assert_eq!(cell.c, ' ');
+        }
+    }
+
+    #[test]
+    fn mode_style_returns_badge_for_each_mode() {
+        let theme = default_theme();
+        let (label, _) = mode_style(&InputMode::Insert, &theme);
+        assert_eq!(label, "INSERT");
+        let (label, _) = mode_style(&InputMode::Normal, &theme);
+        assert_eq!(label, "NORMAL");
+        let (label, _) = mode_style(
+            &InputMode::Visual {
+                start_col: 0,
+                start_row: 0,
+                cur_col: 0,
+                cur_row: 0,
+            },
+            &theme,
+        );
+        assert_eq!(label, "VISUAL");
+        let (label, _) = mode_style(&InputMode::RenameTab { buf: String::new() }, &theme);
+        assert_eq!(label, "RENAME");
+        let (label, _) = mode_style(
+            &InputMode::Search {
+                query: String::new(),
+            },
+            &theme,
+        );
+        assert_eq!(label, "SEARCH");
+    }
+
+    #[test]
+    fn draw_empty_buffer_does_not_panic() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let mut buf = vec![0u32; 800 * 600];
+        let theme = default_theme();
+        r.draw(
+            &mut buf,
+            800,
+            600,
+            &[],
+            &[],
+            &InputMode::Insert,
+            &[],
+            &m,
+            0,
+            0,
+            None,
+            0.55,
+            false,
+            false,
+            &theme,
+        );
+    }
+
+    #[test]
+    fn draw_pane_fills_background_color() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let (cols, rows) = m.grid_size_for(800, 600u32.saturating_sub(44));
+        let grid = make_grid(cols, rows);
+        let pane = PaneView {
+            grid: &grid,
+            rect: [0, 22, 800, 600 - 44],
+            scroll_offset: 0,
+            is_active: true,
+            show_cursor: false,
+            blink_visible: true,
+            search_matches: &[],
+            search_current: None,
+            hovered_url: None,
+        };
+        let mut buf = vec![0u32; 800 * 600];
+        let theme = default_theme();
+        r.draw(
+            &mut buf,
+            800,
+            600,
+            &[pane],
+            &[],
+            &InputMode::Insert,
+            &[("shell".to_string(), true, false)],
+            &m,
+            0,
+            0,
+            None,
+            0.55,
+            false,
+            false,
+            &theme,
+        );
+        assert!(buf.iter().any(|&p| p != 0));
+    }
+
+    #[test]
+    fn draw_tab_bar_renders_without_panic() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let mut buf = vec![0u32; 800 * 600];
+        let theme = default_theme();
+        r.draw(
+            &mut buf,
+            800,
+            600,
+            &[],
+            &[],
+            &InputMode::Normal,
+            &[
+                ("tab1".to_string(), true, false),
+                ("tab2".to_string(), false, true),
+            ],
+            &m,
+            0,
+            0,
+            None,
+            0.55,
+            false,
+            false,
+            &theme,
+        );
+    }
+
+    #[test]
+    fn draw_status_bar_renders_without_panic() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let mut buf = vec![0u32; 800 * 600];
+        let theme = default_theme();
+        r.draw(
+            &mut buf,
+            800,
+            600,
+            &[],
+            &[],
+            &InputMode::Search {
+                query: "hello".to_string(),
+            },
+            &[],
+            &m,
+            3,
+            1,
+            Some("/home/user"),
+            0.55,
+            false,
+            true,
+            &theme,
+        );
+    }
+
+    #[test]
+    fn draw_config_panel_renders_without_panic() {
+        let mut r = make_renderer();
+        let mut buf = vec![0u32; 800 * 600];
+        let panel = ConfigPanel::from_config(&Config::default());
+        r.draw_config_panel(&mut buf, 800, 600, &panel);
+    }
+
+    #[test]
+    fn draw_with_bell_flash_does_not_panic() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let mut buf = vec![0u32; 800 * 600];
+        let theme = default_theme();
+        r.draw(
+            &mut buf,
+            800,
+            600,
+            &[],
+            &[],
+            &InputMode::Insert,
+            &[],
+            &m,
+            0,
+            0,
+            None,
+            0.55,
+            true,
+            false,
+            &theme,
+        );
+    }
+
+    #[test]
+    fn draw_with_separator_does_not_panic() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let mut buf = vec![0u32; 800 * 600];
+        let theme = default_theme();
+        let sep = [[200u32, 0u32, 2u32, 600u32]];
+        r.draw(
+            &mut buf,
+            800,
+            600,
+            &[],
+            &sep,
+            &InputMode::Insert,
+            &[],
+            &m,
+            0,
+            0,
+            None,
+            0.55,
+            false,
+            false,
+            &theme,
+        );
+    }
 
     #[test]
     fn blend_transparent_returns_bg() {

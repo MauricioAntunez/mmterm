@@ -121,3 +121,18 @@ fn palette_has_16_entries() {
     let theme = default_theme();
     assert_eq!(theme.palette.len(), 16);
 }
+
+#[test]
+fn list_themes_nonexistent_dir_returns_empty() {
+    let names = list_themes(std::path::Path::new("/does/not/exist/at/all/0xdeadbeef"));
+    assert!(names.is_empty());
+}
+
+#[test]
+fn list_themes_dir_with_non_toml_files_skips_them() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join("readme.txt"), "not a theme").unwrap();
+    fs::write(dir.path().join("theme.toml.bak"), "also not").unwrap();
+    let names = list_themes(dir.path());
+    assert!(names.is_empty());
+}

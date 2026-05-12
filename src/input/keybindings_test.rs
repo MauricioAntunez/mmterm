@@ -1498,3 +1498,35 @@ fn insert_plain_tab_still_sends_tab_byte() {
     );
     assert!(matches!(a, Action::SendToPty(ref v) if v == &[b'\t']));
 }
+
+#[test]
+fn insert_alt_backspace_sends_esc_del() {
+    let a = handle_key_inner(
+        &named(NamedKey::Backspace),
+        false,
+        false,
+        true,
+        &insert(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::SendToPty(ref v) if v == &[0x1b, 0x7f]));
+}
+
+#[test]
+fn insert_alt_arrow_falls_through_to_regular_match() {
+    // alt + ArrowLeft hits `_ => None` in the alt match block, then falls
+    // through to the regular key match and produces the normal CSI sequence.
+    let a = handle_key_inner(
+        &named(NamedKey::ArrowLeft),
+        false,
+        false,
+        true,
+        &insert(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::SendToPty(ref v) if v == b"\x1b[D"));
+}

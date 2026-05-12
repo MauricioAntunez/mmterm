@@ -330,3 +330,7 @@ fn load_fallback_fonts() -> Vec<Font> {
     }
     fonts
 }
+
+#[cfg(test)]
+#[path = "glyph_test.rs"]
+mod tests;

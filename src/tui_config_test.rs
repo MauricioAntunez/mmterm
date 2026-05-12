@@ -422,3 +422,92 @@ fn build_config_zero_font_size_returns_error() {
     assert!(matches!(action, ConfigAction::None));
     assert!(panel.status.as_deref().unwrap_or("").contains("Error"));
 }
+
+#[test]
+fn build_config_zero_scrollback_returns_error() {
+    let mut panel = make_panel();
+    panel.fields[F_SCROLLBACK].value = "0".to_string();
+    let action = panel.save();
+    assert!(matches!(action, ConfigAction::None));
+    assert!(panel.status.as_deref().unwrap_or("").contains("Error"));
+}
+
+#[test]
+fn field_select_cycles_forward() {
+    let mut panel = make_panel();
+    panel.selected = F_THEME_NAME;
+    panel.fields[F_THEME_NAME].kind =
+        FieldKind::Select(vec!["alpha".to_string(), "beta".to_string()]);
+    panel.fields[F_THEME_NAME].value = "alpha".to_string();
+    let action = panel.handle_right();
+    assert!(matches!(action, ConfigAction::PreviewTheme(ref n) if n == "beta"));
+    assert_eq!(panel.fields[F_THEME_NAME].value, "beta");
+}
+
+#[test]
+fn field_select_cycles_backward_wraps() {
+    let mut panel = make_panel();
+    panel.selected = F_THEME_NAME;
+    panel.fields[F_THEME_NAME].kind =
+        FieldKind::Select(vec!["alpha".to_string(), "beta".to_string()]);
+    panel.fields[F_THEME_NAME].value = "alpha".to_string();
+    let action = panel.handle_left();
+    assert!(matches!(action, ConfigAction::PreviewTheme(ref n) if n == "beta"));
+    assert_eq!(panel.fields[F_THEME_NAME].value, "beta");
+}
+
+#[test]
+fn field_select_cycles_forward_wraps_at_end() {
+    let mut panel = make_panel();
+    panel.selected = F_THEME_NAME;
+    panel.fields[F_THEME_NAME].kind =
+        FieldKind::Select(vec!["alpha".to_string(), "beta".to_string()]);
+    panel.fields[F_THEME_NAME].value = "beta".to_string();
+    let action = panel.handle_right();
+    assert!(matches!(action, ConfigAction::PreviewTheme(ref n) if n == "alpha"));
+}
+
+#[test]
+fn handle_right_on_non_select_field_returns_none() {
+    let mut panel = make_panel();
+    panel.selected = F_FONT_SIZE;
+    let action = panel.handle_right();
+    assert!(matches!(action, ConfigAction::None));
+}
+
+#[test]
+fn handle_left_on_non_select_field_returns_none() {
+    let mut panel = make_panel();
+    panel.selected = F_FONT_SIZE;
+    let action = panel.handle_left();
+    assert!(matches!(action, ConfigAction::None));
+}
+
+#[test]
+fn build_config_preserves_selected_theme_name() {
+    let mut panel = make_panel();
+    panel.selected = F_THEME_NAME;
+    panel.fields[F_THEME_NAME].kind =
+        FieldKind::Select(vec!["default".to_string(), "custom".to_string()]);
+    panel.fields[F_THEME_NAME].value = "custom".to_string();
+    if let ConfigAction::Save(cfg) = panel.save() {
+        assert_eq!(cfg.theme.name, "custom");
+    } else {
+        panic!("expected Save action");
+    }
+}
+
+#[test]
+fn validate_select_kind_always_passes() {
+    let mut panel = make_panel();
+    panel.selected = F_THEME_NAME;
+    panel.fields[F_THEME_NAME].kind =
+        FieldKind::Select(vec!["default".to_string(), "other".to_string()]);
+    panel.fields[F_THEME_NAME].value = "other".to_string();
+    // Manually enter editing mode (bypasses start_edit guard) and confirm.
+    panel.editing = true;
+    panel.edit_buf = "other".to_string();
+    panel.handle_char('\r');
+    assert!(!panel.editing);
+    assert_eq!(panel.fields[F_THEME_NAME].value, "other");
+}

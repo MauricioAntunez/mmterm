@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - configurable scrollback buffer size via `scrollback_lines` in `[terminal]` config section (default 10 000, minimum 100)
+- headless renderer tests covering `FontMetrics`, `color_u32`, `dim_color`, `get_cell`, `mode_style`, and all draw paths
+- glyph cache tests covering cache hit, fallback rendering, and bilinear scaling
+- PTY session tests for spawn, write, and resize
+- additional unit tests for config defaults, theme listing, tui_config Select cycling, and keybinding alt-modifier encoding
 
 - theme system: 9 built-in themes (default, catppuccin-mocha, dracula, gruvbox-dark, monokai, nord, one-dark, solarized-dark, tokyo-night) installed to `~/.config/mmterm/themes/` on first launch
 - theme selector in the config panel (← / → to cycle with live preview)

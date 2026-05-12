@@ -93,3 +93,7 @@ impl PtySession {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "session_test.rs"]
+mod tests;
