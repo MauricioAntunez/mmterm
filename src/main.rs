@@ -969,10 +969,14 @@ impl App {
         let views: Vec<PaneView> = if zoomed {
             let entry = tab.panes.get(&active_id);
             if let Some(entry) = entry {
+                // cursor_visible is ignored in Insert mode: Ink and other TUI
+                // frameworks hide the terminal cursor (?25l) during rendering
+                // and sometimes do not restore it, leaving the cursor permanently
+                // hidden. In mmterm's Insert mode the user always needs to see
+                // the cursor, so we honour only our own modal state here.
                 let show_cursor = matches!(self.mode, InputMode::Insert)
                     && self.cursor_blink
-                    && entry.pane.scroll_offset == 0
-                    && entry.pane.parser.grid.cursor_visible;
+                    && entry.pane.scroll_offset == 0;
                 let (sm, sc) = if has_search {
                     (search_matches.as_slice(), Some(search_current_val))
                 } else {
@@ -1000,8 +1004,7 @@ impl App {
                     let show_cursor = is_active
                         && matches!(self.mode, InputMode::Insert)
                         && self.cursor_blink
-                        && entry.pane.scroll_offset == 0
-                        && entry.pane.parser.grid.cursor_visible;
+                        && entry.pane.scroll_offset == 0;
                     let (sm, sc) = if is_active && has_search {
                         (search_matches.as_slice(), Some(search_current_val))
                     } else {

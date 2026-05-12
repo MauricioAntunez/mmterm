@@ -70,6 +70,7 @@ struct SavedScreen {
     cells: Vec<Cell>,
     cursor_col: usize,
     cursor_row: usize,
+    cursor_visible: bool,
     scroll_top: usize,
     scroll_bottom: usize,
     fg: Color,
@@ -211,6 +212,7 @@ impl Grid {
             cells: std::mem::replace(&mut self.cells, vec![blank; self.cols * self.rows]),
             cursor_col: self.cursor_col,
             cursor_row: self.cursor_row,
+            cursor_visible: self.cursor_visible,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
             fg: self.fg,
@@ -226,6 +228,7 @@ impl Grid {
         });
         self.cursor_col = 0;
         self.cursor_row = 0;
+        self.cursor_visible = true;
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
         self.fg = self.default_fg;
@@ -243,6 +246,7 @@ impl Grid {
             self.cells = saved.cells;
             self.cursor_col = saved.cursor_col;
             self.cursor_row = saved.cursor_row;
+            self.cursor_visible = saved.cursor_visible;
             self.scroll_top = saved.scroll_top;
             self.scroll_bottom = saved.scroll_bottom;
             self.fg = saved.fg;

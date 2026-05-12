@@ -188,6 +188,33 @@ fn in_alternate_screen_reflects_state() {
 }
 
 #[test]
+fn cursor_visible_restored_after_alt_screen_hide() {
+    let mut g = make_grid(10, 5);
+    // App hides cursor, enters alt screen (e.g. Claude Code / vim)
+    g.cursor_visible = false;
+    g.enter_alternate_screen();
+    // Inside alt screen the cursor is reset to visible
+    assert!(g.cursor_visible);
+    // App hides cursor again inside alt screen
+    g.cursor_visible = false;
+    g.exit_alternate_screen();
+    // After exit, original hidden state must be restored (not forced visible)
+    assert!(!g.cursor_visible);
+}
+
+#[test]
+fn cursor_visible_reset_on_enter_alt_screen() {
+    let mut g = make_grid(10, 5);
+    g.cursor_visible = false;
+    g.enter_alternate_screen();
+    assert!(
+        g.cursor_visible,
+        "alt screen should reset cursor to visible"
+    );
+    g.exit_alternate_screen();
+}
+
+#[test]
 fn exit_alternate_screen_when_not_active_is_noop() {
     let mut g = make_grid(10, 5);
     g.write_char('A');
