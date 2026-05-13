@@ -31,7 +31,8 @@ jobs:
             libwayland-dev \
             libx11-dev \
             libxi-dev \
-            libxrandr-dev
+            libxrandr-dev \
+            xvfb
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9  # stable
@@ -61,4 +62,4 @@ jobs:
         run: cargo clippy --locked -- -D warnings
 
       - name: Test
-        run: cargo test --locked
+        run: xvfb-run cargo test --locked
