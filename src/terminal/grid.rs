@@ -397,12 +397,21 @@ impl Grid {
         self.scrollback.len()
     }
 
-    pub fn selected_text(&self, sc: usize, sr: usize, ec: usize, er: usize) -> String {
+    pub fn selected_text(
+        &self,
+        sc: usize,
+        sr: usize,
+        ec: usize,
+        er: usize,
+        scroll_offset: usize,
+    ) -> String {
         let (r0, c0, r1, c1) = if (sr, sc) <= (er, ec) {
             (sr, sc, er, ec)
         } else {
             (er, ec, sr, sc)
         };
+        let sb_len = self.scrollback.len();
+        let sb_start = sb_len.saturating_sub(scroll_offset);
         let mut result = String::new();
         for row in r0..=r1 {
             let col_start = if row == r0 { c0 } else { 0 };
@@ -413,9 +422,32 @@ impl Grid {
             };
             let mut line = String::new();
             for col in col_start..=col_end {
-                if col < self.cols && row < self.rows {
-                    line.push(self.cell(col, row).c);
+                if col >= self.cols {
+                    continue;
                 }
+                let c = if scroll_offset > 0 {
+                    let abs_row = sb_start + row;
+                    if abs_row < sb_len {
+                        let sb_line = &self.scrollback[abs_row];
+                        if col < sb_line.len() {
+                            sb_line[col].c
+                        } else {
+                            ' '
+                        }
+                    } else {
+                        let live_row = abs_row.saturating_sub(sb_len);
+                        if live_row < self.rows {
+                            self.cell(col, live_row).c
+                        } else {
+                            continue;
+                        }
+                    }
+                } else if row < self.rows {
+                    self.cell(col, row).c
+                } else {
+                    continue;
+                };
+                line.push(c);
             }
             if !result.is_empty() {
                 result.push('\n');

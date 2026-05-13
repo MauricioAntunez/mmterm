@@ -74,7 +74,7 @@ fn selected_text_single_row() {
     for c in "hello".chars() {
         g.write_char(c);
     }
-    assert_eq!(g.selected_text(0, 0, 4, 0), "hello");
+    assert_eq!(g.selected_text(0, 0, 4, 0, 0), "hello");
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn selected_text_reversed_selection() {
     for c in "hello".chars() {
         g.write_char(c);
     }
-    assert_eq!(g.selected_text(4, 0, 0, 0), "hello");
+    assert_eq!(g.selected_text(4, 0, 0, 0, 0), "hello");
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn selected_text_trims_trailing_spaces() {
     let mut g = make_grid(10, 5);
     g.write_char('H');
     g.write_char('i');
-    assert_eq!(g.selected_text(0, 0, 9, 0), "Hi");
+    assert_eq!(g.selected_text(0, 0, 9, 0, 0), "Hi");
 }
 
 #[test]
@@ -173,8 +173,25 @@ fn selected_text_multi_row_joins_with_newline() {
     g.cursor_col = 0;
     g.cursor_row = 1;
     g.write_char('B');
-    let text = g.selected_text(0, 0, 0, 1);
+    let text = g.selected_text(0, 0, 0, 1, 0);
     assert_eq!(text, "A\nB");
+}
+
+#[test]
+fn selected_text_in_scrollback() {
+    // Write "AB" to row 0, then scroll it into scrollback
+    let mut g = make_grid(10, 2);
+    g.write_char('A');
+    g.write_char('B');
+    // Scroll grid up twice: row 0 ("AB") goes to scrollback, then another blank row
+    g.scroll_up(1);
+    g.scroll_up(1);
+    // Now scrollback has 2 rows; scroll_offset=2 means we see from the top of scrollback
+    let sb_len = g.scrollback_len();
+    assert!(sb_len >= 1);
+    // Select the first scrollback row (visual row 0 with scroll_offset = sb_len)
+    let text = g.selected_text(0, 0, 1, 0, sb_len);
+    assert_eq!(text, "AB");
 }
 
 #[test]

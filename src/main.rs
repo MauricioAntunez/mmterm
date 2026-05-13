@@ -607,11 +607,14 @@ impl App {
             }
             let active = self.tab().active;
             if let Some(entry) = self.tab().panes.get(&active) {
-                let text = entry
-                    .pane
-                    .parser
-                    .grid
-                    .selected_text(start_col, start_row, cur_col, cur_row);
+                let scroll_offset = entry.pane.scroll_offset;
+                let text = entry.pane.parser.grid.selected_text(
+                    start_col,
+                    start_row,
+                    cur_col,
+                    cur_row,
+                    scroll_offset,
+                );
                 if !text.is_empty() {
                     let cb = self
                         .clipboard
@@ -1362,11 +1365,14 @@ impl ApplicationHandler for App {
                         {
                             let active = self.tab().active;
                             if let Some(entry) = self.tab().panes.get(&active) {
-                                let text = entry
-                                    .pane
-                                    .parser
-                                    .grid
-                                    .selected_text(start_col, start_row, cur_col, cur_row);
+                                let scroll_offset = entry.pane.scroll_offset;
+                                let text = entry.pane.parser.grid.selected_text(
+                                    start_col,
+                                    start_row,
+                                    cur_col,
+                                    cur_row,
+                                    scroll_offset,
+                                );
                                 if !text.is_empty() {
                                     let cb = self.clipboard.get_or_insert_with(|| {
                                         Clipboard::new().expect("clipboard unavailable")
