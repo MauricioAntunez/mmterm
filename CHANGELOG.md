@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-14
+
 ### Added
 - configurable scrollback buffer size via `scrollback_lines` in `[terminal]` config section (default 10 000, minimum 100)
 - headless renderer tests covering `FontMetrics`, `color_u32`, `dim_color`, `get_cell`, `mode_style`, and all draw paths
