@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Dependabot configuration for automated Cargo and GitHub Actions dependency updates
+- `--debug` flag: writes `DEBUG`-level logs to `~/.mmterm/debug-<timestamp>.log`; panic hook prints the log path on crash
 
 ### Fixed
 - OSC 8 hyperlinks always show a dim blue underline; underline brightens on hover

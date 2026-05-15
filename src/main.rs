@@ -7,6 +7,10 @@ mod theme;
 mod tui_config;
 mod ui;
 
+#[cfg(test)]
+#[path = "main_test.rs"]
+mod tests;
+
 use arboard::Clipboard;
 use config::Config;
 use crossbeam_channel::{Receiver, unbounded};
@@ -1719,8 +1723,81 @@ fn open_url(url: &str) {
     }
 }
 
+/// Returns the debug log path when `--debug` is in argv, otherwise `None`.
+pub fn debug_log_path() -> Option<String> {
+    if !std::env::args().any(|a| a == "--debug") {
+        return None;
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let dir = format!("{home}/.mmterm");
+    std::fs::create_dir_all(&dir).ok()?;
+    let ts = chrono::Local::now().format("%Y%m%dT%H%M%S");
+    Some(format!("{dir}/debug-{ts}.log"))
+}
+
+fn init_logging(log_path: Option<&str>) {
+    let level = if log_path.is_some() {
+        log::LevelFilter::Debug
+    } else {
+        // Respect RUST_LOG when not in debug mode, defaulting to Warn.
+        std::env::var("RUST_LOG")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(log::LevelFilter::Warn)
+    };
+
+    let mut dispatch = fern::Dispatch::new().level(level).chain(
+        fern::Dispatch::new()
+            .format(|out, message, record| {
+                out.finish(format_args!("[{}] {}", record.level(), message))
+            })
+            .chain(std::io::stderr()),
+    );
+
+    if let Some(path) = log_path {
+        match fern::log_file(path) {
+            Ok(file) => {
+                dispatch = dispatch.chain(
+                    fern::Dispatch::new()
+                        .format(|out, message, record| {
+                            out.finish(format_args!(
+                                "{ts} [{level}] {target} — {msg}",
+                                ts = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f"),
+                                level = record.level(),
+                                target = record.target(),
+                                msg = message
+                            ))
+                        })
+                        .chain(file),
+                );
+            }
+            Err(e) => {
+                eprintln!("mmterm: could not open debug log {path}: {e}");
+            }
+        }
+    }
+
+    if let Err(e) = dispatch.apply() {
+        eprintln!("mmterm: logging init failed: {e}");
+    }
+}
+
 fn main() {
-    env_logger::init();
+    let log_path = debug_log_path();
+    init_logging(log_path.as_deref());
+
+    if let Some(ref path) = log_path {
+        // Install panic hook so the log location is always visible on crash.
+        let p = path.clone();
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            log::error!("panic: {info}");
+            default_hook(info);
+            eprintln!("\nmmterm: debug log saved to {p}");
+        }));
+        log::info!("debug logging enabled → {path}");
+    }
+
     Config::write_default_if_missing();
     let config = Config::load();
     let event_loop = EventLoop::new().unwrap();
