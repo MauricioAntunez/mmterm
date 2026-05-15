@@ -380,16 +380,22 @@ impl Renderer {
                     }
                 }
 
-                // Underline (1px, 2px from bottom): SGR 4 or OSC 8 hyperlink (only when hovered)
+                // Underline (1px, 2px from bottom): SGR 4 or OSC 8 hyperlink
                 let url_hovered =
                     cell_url_hovered(cell.url.as_ref().map(|u| u.as_str()), pane.hovered_url);
-                if cell.underline || url_hovered {
+                let has_url = cell.url.is_some();
+                if cell.underline || has_url {
                     let hyperlink_ul = color_u32(theme.palette[4]); // blue
-                    let ul_color = if url_hovered {
-                        if pane.is_active {
+                    let ul_color = if has_url {
+                        let base = if url_hovered {
                             hyperlink_ul
                         } else {
-                            dim_color(hyperlink_ul, dim_factor)
+                            dim_color(hyperlink_ul, 0.45)
+                        };
+                        if pane.is_active {
+                            base
+                        } else {
+                            dim_color(base, dim_factor)
                         }
                     } else {
                         color_u32(fg)
@@ -1615,6 +1621,70 @@ mod tests {
         grid.cell_mut(0, 0).underline = true;
         let pane = make_pane(&grid, &m);
         do_draw(&mut r, &m, &[pane], &InputMode::Insert);
+    }
+
+    #[test]
+    fn draw_pane_osc8_link_without_hover_does_not_panic() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let (cols, rows) = m.grid_size_for(800, 600u32.saturating_sub(44));
+        let mut grid = make_grid(cols, rows);
+        grid.write_char('L');
+        grid.cell_mut(0, 0).url = Some(std::sync::Arc::new("https://example.com".to_string()));
+        let pane = make_pane(&grid, &m);
+        do_draw(&mut r, &m, &[pane], &InputMode::Insert);
+    }
+
+    #[test]
+    fn draw_pane_osc8_link_with_hover_does_not_panic() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let (cols, rows) = m.grid_size_for(800, 600u32.saturating_sub(44));
+        let mut grid = make_grid(cols, rows);
+        grid.write_char('L');
+        grid.cell_mut(0, 0).url = Some(std::sync::Arc::new("https://example.com".to_string()));
+        let mut pane = make_pane(&grid, &m);
+        pane.hovered_url = Some("https://example.com");
+        do_draw(&mut r, &m, &[pane], &InputMode::Insert);
+    }
+
+    #[test]
+    fn draw_pane_osc8_link_paints_underline_without_hover() {
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let (cols, rows) = m.grid_size_for(800, 600u32.saturating_sub(44));
+        let mut grid = make_grid(cols, rows);
+        grid.write_char('L');
+        grid.cell_mut(0, 0).url = Some(std::sync::Arc::new("https://example.com".to_string()));
+        let pane = make_pane(&grid, &m);
+        let mut buf = vec![0u32; 800 * 600];
+        let theme = default_theme();
+        r.draw(
+            &mut buf,
+            800,
+            600,
+            &[pane],
+            &[],
+            &InputMode::Insert,
+            &[("t".to_string(), true, false)],
+            &m,
+            0,
+            0,
+            None,
+            0.55,
+            false,
+            false,
+            &theme,
+        );
+        // Underline row is at rect_y + cell_height - 2 (cell at row 0, rect_y = 22)
+        let ul_y = (22 + m.cell_height.saturating_sub(2)) as usize;
+        let row_pixels = &buf[ul_y * 800..(ul_y + 1) * 800];
+        // At least one pixel in the first cell width should differ from the background
+        let bg = color_u32(grid.cell(0, 0).bg);
+        assert!(
+            row_pixels[..m.cell_width as usize].iter().any(|&p| p != bg),
+            "expected a visible underline pixel for OSC 8 link without hover"
+        );
     }
 
     #[test]
