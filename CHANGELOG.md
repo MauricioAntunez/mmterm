@@ -90,7 +90,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - OSC 8 clickable hyperlinks with blue underline and pointer cursor
 - Visual bell flash on BEL (0x07)
 - Mouse reporting and selection rendering
-- Plain-text URL auto-detection and click-to-open
+- plain-text URL auto-detection and click-to-open; trailing `)`, `.`, `,`, and similar punctuation stripped from matched links
 
 #### Search
 - Scrollback search with live match highlighting (`/` in Normal mode)
@@ -101,7 +101,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 #### UI / panes
 - Split-pane support with binary-tree layout (horizontal and vertical)
 - Vim-style pane focus navigation (`Ctrl+W h/j/k/l`)
-- Pane zoom — toggle full-window focus (`Ctrl+W z`)
+- Pane zoom — toggle full-window focus (`Ctrl+W z`); `ZoomPane` action dispatched in both normal and `Ctrl+W` key paths
+- `q` in Normal mode closes the active pane, not the application
+- pane auto-closes when the shell process exits (`exit` or `Ctrl+D`)
+- immediate redraw on tab switch and `Ctrl+W` actions
 - Scrollbar and improved keyboard scroll bindings
 - Configurable inactive pane dimming
 - Tab activity dot indicator
@@ -113,8 +116,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - New tabs and split panes inherit the current working directory
 
 #### Fonts and rendering
-- Color emoji support via FreeType CBDT/CBLC
+- Color emoji support via FreeType CBDT/CBLC; tab bar glyph advance corrected after emoji so spacing is preserved
 - Wide-character and glyph fallback font support
+- correct font metrics computation for accurate cell sizing and glyph placement
 - Per-tab font size (`Ctrl++` / `Ctrl+-` / `Ctrl+0`)
 - Cursor blink resets on keypress
 
@@ -126,7 +130,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Session logging: `Ctrl+Shift+L` toggles PTY output capture per-pane; active pane shows a `● REC` badge in the status bar; configurable via `[logging]` section (`auto_log`, `log_dir`)
 
 #### Input
-- Modal input: Insert, Normal, Visual, Search modes (vim-style)
+- Modal input: Insert, Normal, Visual, Search modes (vim-style); `Escape` passes through to the PTY in Insert mode, `Ctrl+.` cycles between modes
+- `Alt+Tab` modifier state fully consumed so bare tab keystrokes don't leak into the PTY; modifier state resets on focus loss
+- `Home`/`End` send standard VT sequences for readline compatibility
 - Mouse selection and copy/paste support
 - `Ctrl+C` copy in Visual mode
 - `Ctrl+Shift+C` / `Ctrl+Shift+V` clipboard bindings
@@ -136,25 +142,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Release workflow: multi-platform binaries (Linux x86_64/aarch64, macOS x86_64/aarch64), tar.gz archives, SHA256 checksums
 - Desktop install script
 - App icon with MM branding
-
-### Fixed
-
-- Tab keystroke from Alt+Tab window switching no longer leaks into the PTY; modifier state is also reset when mmterm loses focus
-- plain-text URL detection no longer includes trailing `)`, `.`, `,`, and similar punctuation in the link
-- Alt modifier propagation to prevent bare tab on `Alt+Tab`
-- `ZoomPane` dispatch missing in normal key handler
-- `q` in Normal mode closed the app instead of the pane
-- Auto-close pane when shell exits via `exit` or `Ctrl+D`
-- Home/End keys now send standard sequences for readline compatibility
-- Font metrics for correct cell sizing and glyph placement
-- `Escape` passes through to PTY; `Ctrl+.` cycles input mode
-- Tab bar spacing corrupted after color emoji rendering
-- CPU busy-loop in event loop causing unnecessary load
-- Redraw not requested immediately on tab switch and `Ctrl+W` actions
-
-### Performance
-
-- Fixed CPU busy-loop in PTY event loop
+- event loop yields on idle to eliminate CPU busy-loop during quiescent periods
 
 [Unreleased]: https://github.com/roramirez/mmterm/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/roramirez/mmterm/releases/tag/v0.1.0
