@@ -190,14 +190,14 @@ pub(crate) fn handle_key_inner(
     }
 
     // Alt+1..9 — jump to tab by position (1-indexed)
-    if alt && !ctrl && !shift {
-        if let Key::Character(s) = key {
-            if let Some(d) = s.chars().next().and_then(|c| c.to_digit(10)) {
-                if d >= 1 {
-                    return Action::GoToTab((d - 1) as usize);
-                }
-            }
-        }
+    if alt
+        && !ctrl
+        && !shift
+        && let Key::Character(s) = key
+        && let Some(d) = s.chars().next().and_then(|c| c.to_digit(10))
+        && d >= 1
+    {
+        return Action::GoToTab((d - 1) as usize);
     }
 
     // ── Per-mode handling ────────────────────────────────────────────────
