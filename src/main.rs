@@ -20,6 +20,7 @@ mod ui;
 mod tests;
 
 use arboard::Clipboard;
+use base64::Engine as _;
 use chrono::Local;
 use config::Config;
 use crossbeam_channel::{Receiver, unbounded};
@@ -334,6 +335,24 @@ impl App {
                                 std::mem::take(&mut entry.pane.parser.grid.pending_responses);
                             if !responses.is_empty() {
                                 let _ = entry.pty.write_input(&responses);
+                            }
+                            if let Some(text) =
+                                entry.pane.parser.grid.pending_clipboard_write.take()
+                            {
+                                if let Some(cb) = self.clipboard.as_mut() {
+                                    let _ = cb.set_text(text);
+                                }
+                            }
+                            if std::mem::take(&mut entry.pane.parser.grid.pending_clipboard_read) {
+                                let text = self
+                                    .clipboard
+                                    .as_mut()
+                                    .and_then(|cb| cb.get_text().ok())
+                                    .unwrap_or_default();
+                                let encoded = base64::engine::general_purpose::STANDARD
+                                    .encode(text.as_bytes());
+                                let resp = format!("\x1b]52;c;{encoded}\x1b\\");
+                                let _ = entry.pty.write_input(resp.as_bytes());
                             }
                             got_data = true;
                             if bytes_this_frame >= BYTES_PER_FRAME {

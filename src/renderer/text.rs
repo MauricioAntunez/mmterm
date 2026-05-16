@@ -429,6 +429,23 @@ impl Renderer {
                     }
                 }
 
+                // Overline (1px at top of cell): SGR 53
+                if cell.overline {
+                    let ol_color = color_u32(fg);
+                    if cell_y < ry + rh {
+                        for dx in 0..draw_w {
+                            let sx = cell_x + dx;
+                            if sx >= rx + rw {
+                                break;
+                            }
+                            let idx = (cell_y * buf_width + sx) as usize;
+                            if idx < buf.len() {
+                                buf[idx] = ol_color;
+                            }
+                        }
+                    }
+                }
+
                 // Strikethrough (1px at mid-ascender)
                 if cell.strikethrough {
                     let st_y = cell_y + m.baseline / 2;
@@ -1200,6 +1217,7 @@ static BLANK_CELL: Cell = Cell {
     italic: false,
     underline: false,
     strikethrough: false,
+    overline: false,
     reverse: false,
     blink: false,
     wide: false,

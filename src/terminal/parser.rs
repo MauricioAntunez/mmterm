@@ -1,4 +1,6 @@
 use super::grid::{Color, CursorShape, Grid, GridColors};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use vte::{Params, Parser, Perform};
 
 pub struct TerminalParser {
@@ -171,6 +173,7 @@ impl Perform for Performer<'_> {
                     self.grid.italic = false;
                     self.grid.underline = false;
                     self.grid.strikethrough = false;
+                    self.grid.overline = false;
                     self.grid.reverse = false;
                     self.grid.blink = false;
                     return;
@@ -196,6 +199,7 @@ impl Perform for Performer<'_> {
                         5 => self.grid.blink = true,
                         7 => self.grid.reverse = true,
                         9 => self.grid.strikethrough = true,
+                        53 => self.grid.overline = true,
                         22 => {
                             self.grid.bold = false;
                             self.grid.dim = false;
@@ -205,6 +209,7 @@ impl Perform for Performer<'_> {
                         25 => self.grid.blink = false,
                         27 => self.grid.reverse = false,
                         29 => self.grid.strikethrough = false,
+                        55 => self.grid.overline = false,
                         // Standard foreground colors 30-37
                         n @ 30..=37 => self.grid.fg = self.grid.palette[(n - 30) as usize],
                         39 => self.grid.fg = self.grid.default_fg,
@@ -390,6 +395,17 @@ impl Perform for Performer<'_> {
                 self.grid.current_url = None;
             } else if let Ok(s) = std::str::from_utf8(uri) {
                 self.grid.current_url = Some(std::sync::Arc::new(s.to_string()));
+            }
+        }
+        // OSC 52: clipboard access — OSC 52 ; <sel> ; <base64|?> ST
+        // Write: data is base64-encoded text; Read: data is "?"
+        if let [b"52", _sel, data] = params {
+            if *data == b"?" {
+                self.grid.pending_clipboard_read = true;
+            } else if let Ok(decoded) = BASE64.decode(data) {
+                if let Ok(text) = std::str::from_utf8(&decoded) {
+                    self.grid.pending_clipboard_write = Some(text.to_string());
+                }
             }
         }
     }
