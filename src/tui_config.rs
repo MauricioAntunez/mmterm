@@ -1,6 +1,6 @@
 use crate::config::{
-    ColorsConfig, Config, FontConfig, LogConfig, ShellConfig, TerminalConfig, ThemeConfig,
-    WindowConfig,
+    ColorsConfig, Config, FontConfig, LogConfig, ShellConfig, StatusBarConfig, TerminalConfig,
+    ThemeConfig, WindowConfig,
 };
 use crate::theme::{list_themes, themes_dir};
 
@@ -23,6 +23,7 @@ const F_COLOR_FG: usize = 14;
 const F_COLOR_CUR: usize = 15;
 const F_COLOR_SEL: usize = 16;
 const F_PALETTE: usize = 17; // F_PALETTE + 0..15
+const F_STATUS_BAR_RIGHT: usize = 33;
 
 const PALETTE_LABELS: [&str; 16] = [
     "Palette 0  black",
@@ -226,6 +227,15 @@ impl ConfigPanel {
                 section: if i == 0 { Some("Palette") } else { None },
             });
         }
+
+        // ── Status Bar ──────────────────────────────────────────────────────
+        fields.push(Field {
+            label: "Status Bar Right",
+            hint: "comma-separated segments: %pwd, %date{%H:%M:%S}",
+            value: cfg.status_bar.right.join(", "),
+            kind: FieldKind::OptText,
+            section: Some("Status Bar"),
+        });
 
         Self {
             fields,
@@ -453,6 +463,12 @@ impl ConfigPanel {
 
         let palette: Vec<String> = (0..16).map(|i| get(F_PALETTE + i)).collect();
 
+        let status_bar_right: Vec<String> = get(F_STATUS_BAR_RIGHT)
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
         Ok(Config {
             font: FontConfig { family, size },
             window: WindowConfig {
@@ -474,6 +490,9 @@ impl ConfigPanel {
                 palette,
             },
             theme: ThemeConfig { name: theme_name },
+            status_bar: StatusBarConfig {
+                right: status_bar_right,
+            },
         })
     }
 

@@ -31,6 +31,27 @@ pub struct Config {
 
     #[serde(default)]
     pub theme: ThemeConfig,
+
+    #[serde(default)]
+    pub status_bar: StatusBarConfig,
+}
+
+fn default_status_bar_right() -> Vec<String> {
+    vec!["%pwd".to_string()]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusBarConfig {
+    #[serde(default = "default_status_bar_right")]
+    pub right: Vec<String>,
+}
+
+impl Default for StatusBarConfig {
+    fn default() -> Self {
+        Self {
+            right: default_status_bar_right(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -104,7 +104,7 @@ impl Renderer {
         metrics: &FontMetrics,
         search_total: usize,
         search_current: usize,
-        cwd: Option<&str>,
+        right_text: Option<&str>,
         pane_title: Option<&str>,
         inactive_dim: f32,
         bell_flash: bool,
@@ -156,7 +156,7 @@ impl Renderer {
             mode,
             search_total,
             search_current,
-            cwd,
+            right_text,
             pane_title,
             is_logging,
             theme,
@@ -876,7 +876,7 @@ impl Renderer {
         mode: &InputMode,
         search_total: usize,
         search_current: usize,
-        cwd: Option<&str>,
+        right_text: Option<&str>,
         pane_title: Option<&str>,
         is_logging: bool,
         theme: &ResolvedTheme,
@@ -1008,37 +1008,37 @@ impl Renderer {
         }
 
         // Show pane OSC title centered in the status bar (suppressed during search).
-        if !matches!(mode, InputMode::Search { .. }) {
-            if let Some(title) = pane_title {
-                let title_w = title.len() as u32 * char_w;
-                if title_w < width {
-                    let title_x = (width - title_w) / 2;
-                    self.draw_str(
-                        buf,
-                        width,
-                        height,
-                        title_x,
-                        badge_y + 2,
-                        title,
-                        px,
-                        false,
-                        color_u32(theme.palette[8]),
-                    );
-                }
-            }
-        }
-
-        // Show CWD right-aligned in the status bar.
-        if let Some(path) = cwd {
-            let cwd_w = path.len() as u32 * char_w;
-            if let Some(cwd_x) = width.checked_sub(cwd_w + 10) {
+        if !matches!(mode, InputMode::Search { .. })
+            && let Some(title) = pane_title
+        {
+            let title_w = title.len() as u32 * char_w;
+            if title_w < width {
+                let title_x = (width - title_w) / 2;
                 self.draw_str(
                     buf,
                     width,
                     height,
-                    cwd_x,
+                    title_x,
                     badge_y + 2,
-                    path,
+                    title,
+                    px,
+                    false,
+                    color_u32(theme.palette[8]),
+                );
+            }
+        }
+
+        // Show right-aligned status bar segments (pwd, date, etc.).
+        if let Some(text) = right_text {
+            let text_w = text.len() as u32 * char_w;
+            if let Some(text_x) = width.checked_sub(text_w + 10) {
+                self.draw_str(
+                    buf,
+                    width,
+                    height,
+                    text_x,
+                    badge_y + 2,
+                    text,
                     px,
                     false,
                     color_u32(theme.palette[8]),

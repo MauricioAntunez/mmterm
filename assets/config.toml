@@ -24,6 +24,11 @@ auto_log = false
 # Directory for log files; empty string means ~/.mmterm
 log_dir  = ""
 
+[status_bar]
+# Right-side segments. Supported tokens: %pwd (OSC 7 cwd), %date{fmt} (strftime format).
+# Example: right = ["%pwd", "%date{%H:%M}"]
+right = ["%pwd"]
+
 [colors]
 background = "#121212"
 foreground = "#a0a0a0"

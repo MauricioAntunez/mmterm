@@ -14,6 +14,7 @@ mod ui;
 mod tests;
 
 use arboard::Clipboard;
+use chrono::Local;
 use config::Config;
 use crossbeam_channel::{Receiver, unbounded};
 use input::{InputMode, handle_ctrl_w, handle_key};
@@ -1031,6 +1032,8 @@ impl App {
                     p.to_string()
                 }
             });
+        let right_text =
+            resolve_status_bar_right(&self.config.status_bar.right, cwd_owned.as_deref());
         let bell_flash = self.tabs[self.active_tab]
             .bell_flash_until
             .is_some_and(|t| t > Instant::now());
@@ -1038,10 +1041,13 @@ impl App {
             .panes
             .get(&active_id)
             .is_some_and(|e| e.log_file.is_some());
-        let pane_title = self.tabs[self.active_tab]
+        let pane_title_raw = self.tabs[self.active_tab]
             .panes
             .get(&active_id)
             .and_then(|e| e.pane.parser.grid.osc_title.as_deref());
+        let pwd_in_right = self.config.status_bar.right.iter().any(|s| s == "%pwd");
+        let pane_title = pane_title_raw
+            .filter(|t| !(pwd_in_right && cwd_owned.as_deref().is_some_and(|cwd| *t == cwd)));
         self.renderer.draw(
             pixels,
             w,
@@ -1053,7 +1059,7 @@ impl App {
             &metrics,
             self.search_matches.len(),
             self.search_current,
-            cwd_owned.as_deref(),
+            right_text.as_deref(),
             pane_title,
             self.config.window.inactive_dim,
             bell_flash,
@@ -1808,4 +1814,28 @@ fn main() {
     let proxy = event_loop.create_proxy();
     let mut app = App::new(config, proxy);
     event_loop.run_app(&mut app).unwrap();
+}
+
+fn resolve_status_bar_right(segments: &[String], cwd: Option<&str>) -> Option<String> {
+    if segments.is_empty() {
+        return None;
+    }
+    let now = Local::now();
+    let mut parts: Vec<String> = Vec::new();
+    for seg in segments {
+        if let Some(fmt) = seg.strip_prefix("%date{").and_then(|s| s.strip_suffix('}')) {
+            parts.push(now.format(fmt).to_string());
+        } else if seg == "%pwd" {
+            if let Some(p) = cwd {
+                parts.push(p.to_string());
+            }
+        } else {
+            parts.push(seg.clone());
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("  "))
+    }
 }
