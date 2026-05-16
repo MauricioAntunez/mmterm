@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- reverse video (`\e[7m`) was invisible: `write_char` pre-swapped fg/bg and the renderer swapped again, cancelling the effect; now only the renderer swaps based on `cell.reverse`
+
 ### Added
 - 4 px inner padding on all pane edges so text no longer touches the border
 - DSR (`CSI 6 n`) and DA (`CSI c`) query-response: terminal now replies with cursor position and VT100 device attributes, fixing hangs and layout errors in vim, less, and other TUI apps that probe the terminal on startup

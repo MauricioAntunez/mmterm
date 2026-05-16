@@ -1962,6 +1962,63 @@ mod tests {
     }
 
     #[test]
+    fn draw_pane_reverse_video_swaps_background_to_fg_color() {
+        // A space cell with reverse=true should render fg as background.
+        // grid fg=WHITE (#ffffff), bg=BLACK (#000000). With reverse the cell
+        // background must be WHITE (the fg), not BLACK (the original bg).
+        let mut r = make_renderer();
+        let m = r.make_metrics(16.0);
+        let (cols, rows) = m.grid_size_for(800, 600u32.saturating_sub(44));
+        let mut grid = Grid::with_colors(
+            cols,
+            rows,
+            GridColors {
+                fg: Color::WHITE,
+                bg: Color::BLACK,
+                cursor: Color::CURSOR,
+                selection: Color::SELECTION,
+                palette: [Color::BLACK; 16],
+            },
+            10_000,
+        );
+        grid.reverse = true;
+        grid.write_char(' '); // space: only background fill, no glyph
+        let pane = make_pane(&grid, &m);
+        let mut buf = vec![0u32; 800 * 600];
+        let theme = default_theme();
+        r.draw(
+            &mut buf,
+            800,
+            600,
+            &[pane],
+            &[],
+            &InputMode::Insert,
+            &[("t".to_string(), true, false)],
+            &m,
+            0,
+            0,
+            None,
+            None,
+            0.55,
+            false,
+            false,
+            &theme,
+        );
+        // Cell (0,0) background pixel: x = 4 (PANE_PADDING), y = 22+4 (TAB_BAR_H+PANE_PADDING)
+        let px = 4usize;
+        let py = 26usize;
+        let pixel = buf[py * 800 + px];
+        let r_ch = (pixel >> 16) & 0xFF;
+        let g_ch = (pixel >> 8) & 0xFF;
+        let b_ch = pixel & 0xFF;
+        // Color::WHITE = rgb(0xd8, 0xd8, 0xd8). Reverse video: background must equal
+        // the original fg (WHITE), not the original bg (BLACK = rgb(0x1e, 0x1e, 0x2e)).
+        assert_eq!(r_ch, 0xd8, "reverse bg should be fg red channel");
+        assert_eq!(g_ch, 0xd8, "reverse bg should be fg green channel");
+        assert_eq!(b_ch, 0xd8, "reverse bg should be fg blue channel");
+    }
+
+    #[test]
     fn draw_pane_with_scrollback_shows_scrollbar() {
         let mut r = make_renderer();
         let m = r.make_metrics(16.0);
