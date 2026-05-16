@@ -79,6 +79,7 @@ struct App {
     cursor_blink: bool,
     blink_last: Instant,
     ctrl_w_pending: bool,
+    quit_pending: bool,
     config: Config,
     config_panel: Option<ConfigPanel>,
     clipboard: Option<Clipboard>,
@@ -117,6 +118,7 @@ impl App {
             cursor_blink: true,
             blink_last: Instant::now(),
             ctrl_w_pending: false,
+            quit_pending: false,
             config_panel: None,
             config,
             clipboard: Clipboard::new().ok(),
@@ -1063,6 +1065,10 @@ impl App {
             self.renderer.draw_config_panel(pixels, w, h, panel);
         }
 
+        if self.quit_pending {
+            self.renderer.draw_quit_confirm(pixels, w, h, &self.theme);
+        }
+
         buf.present().unwrap();
     }
 }
@@ -1145,6 +1151,20 @@ impl ApplicationHandler for App {
                 // Reset blink on every keypress so cursor is always visible after input.
                 self.cursor_blink = true;
                 self.blink_last = Instant::now();
+
+                if self.quit_pending {
+                    let confirmed = matches!(
+                        event.logical_key,
+                        Key::Character(ref s) if s.eq_ignore_ascii_case("y")
+                    );
+                    self.quit_pending = false;
+                    if confirmed {
+                        event_loop.exit();
+                    } else if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
+                    return;
+                }
 
                 if self.config_panel.is_some() {
                     self.handle_config_key(&event);
@@ -1460,7 +1480,18 @@ impl ApplicationHandler for App {
                         }
                     }
                     Action::OpenConfig => self.open_config_panel(),
-                    Action::Quit => event_loop.exit(),
+                    Action::Quit => {
+                        let needs_confirm = self.tabs.len() > 1
+                            || self.tabs.first().is_some_and(|t| t.panes.len() > 1);
+                        if needs_confirm {
+                            self.quit_pending = true;
+                            if let Some(w) = &self.window {
+                                w.request_redraw();
+                            }
+                        } else {
+                            event_loop.exit();
+                        }
+                    }
                     Action::ZoomPane => {
                         self.tab_mut().zoomed = !self.tab().zoomed;
                     }
