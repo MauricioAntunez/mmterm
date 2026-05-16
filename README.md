@@ -14,12 +14,14 @@ Renders entirely via a CPU pixel buffer — no GPU, no OpenGL, no Vulkan.
 - **Split panes** — binary-tree layout, horizontal and vertical splits
 - **Multi-tab** — independent pane trees and font metrics per tab
 - **Scrollback search** — live match highlighting across 10 000-line buffer
+- **Themes** — 9 built-in themes; custom themes via `~/.config/mmterm/themes/`
 - **OSC 8 hyperlinks** — clickable URLs rendered in the terminal
+- **OSC 52 clipboard sync** — copy/paste over SSH without extra tools
 - **Pane zoom** — full-window focus for the active pane
 - **Session logging** — capture PTY output per-pane to `~/.mmterm/` with `Ctrl+Shift+L`
 - **Color emoji** — rendered via FreeType CBDT/CBLC
 - **TUI config editor** — edit settings in-process with `Ctrl+,`
-- **Zero-config startup** — bundled JetBrains Mono fallback font
+- **Zero-config startup** — bundled JetBrains Mono fallback font (regular, bold, italic)
 
 ## Requirements
 
@@ -53,6 +55,12 @@ Enable logging:
 RUST_LOG=info mmterm
 ```
 
+Enable debug logging to file:
+
+```sh
+mmterm --debug   # writes DEBUG-level logs to ~/.mmterm/debug-<timestamp>.log
+```
+
 ## Configuration
 
 On first run, a config file is created at:
@@ -73,16 +81,25 @@ cursor_blink_ms = 500
 [shell]
 # program = "/bin/zsh"   # defaults to $SHELL
 
+[terminal]
+scrollback_lines = 10000  # minimum 100
+
 [logging]
-auto_log = false         # start logging automatically for every new pane
-log_dir  = ""            # destination directory (empty = ~/.mmterm)
+auto_log = false          # start logging automatically for every new pane
+log_dir  = ""             # destination directory (empty = ~/.mmterm)
+
+[status_bar]
+right = "%pwd  %date{%H:%M}"  # right-side segments (%pwd = OSC 7 cwd, %date{fmt} = strftime)
+
+[theme]
+name = "default"          # see ~/.config/mmterm/themes/ for available themes
 
 [colors]
 background = "#121212"
 foreground = "#a0a0a0"
 cursor     = "#bbbbbb"
 selection  = "#3d3d3d"
-palette    = [ ... ]     # 16-color ANSI palette
+palette    = [ ... ]      # 16-color ANSI palette
 ```
 
 You can also edit settings live with `Ctrl+,`.

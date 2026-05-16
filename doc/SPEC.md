@@ -69,19 +69,29 @@ vim-style modal input, split panes, and multi-tab sessions.
 - PTY backend via `portable-pty` (forkpty/posix_openpt on POSIX).
 - ANSI/VT escape code parsing via `vte` (SGR colors, cursor movement,
   erase sequences, scrolling regions, OSC, etc.).
-- 10 000-line scrollback buffer per pane.
+- 10 000-line scrollback buffer per pane (configurable via `scrollback_lines`).
 - 16-color ANSI palette fully configurable per profile.
 - True foreground/background/cursor/selection colors.
 - Bracketed paste mode (`Ctrl+Shift+V`).
+- DSR (`CSI 6 n`) and DA (`CSI c`) query-response: replies with cursor position
+  and VT100 device attributes — fixes hangs in vim, less, and other TUI apps.
+- DECSC/DECRC (`ESC 7` / `ESC 8`): save and restore cursor position **and** all
+  SGR attributes (colors, bold, dim, underline, reverse, blink, strikethrough).
+- SGR italic (`\e[3m` / `\e[23m`): stored per-cell and rendered with an italic
+  font variant; JetBrainsMono Italic and Bold Italic are bundled as fallback.
 
 ### Rendering
 - CPU-only pixel buffer (no GPU, no OpenGL, no Vulkan).
 - Glyph rasterization via `fontdue`; system font discovery via `font-kit`
   (fontconfig on Linux, CoreText on macOS).
-- Bundled fallback font (JetBrains Mono Regular/Bold) for zero-config startup.
-- Per-character bold rendering using a separate bold font face.
+- Bundled fallback font (JetBrains Mono Regular/Bold/Italic/Bold Italic) for
+  zero-config startup.
+- Per-character bold and italic rendering using separate font faces.
 - Correct advance-width cell sizing: `cell_width = M.advance_width.ceil()`.
 - Baseline alignment per glyph using fontdue `ymin` metric.
+- SGR overline (`\e[53m` / `\e[55m`): rendered as a 1 px line at the top of
+  the cell; cleared with `\e[55m`.
+- 4 px inner padding on all pane edges so text never touches the border.
 
 ### Input
 - Four modal modes: **Insert** (default), **Normal**, **Visual**, **Search**.
@@ -136,7 +146,8 @@ vim-style modal input, split panes, and multi-tab sessions.
 ### Configuration
 - TOML file at `$XDG_CONFIG_HOME/mmterm/config.toml`
   (created with defaults on first run).
-- Sections: `[font]`, `[window]`, `[shell]`, `[logging]`, `[colors]`, `[theme]`.
+- Sections: `[font]`, `[window]`, `[shell]`, `[terminal]`, `[logging]`,
+  `[status_bar]`, `[colors]`, `[theme]`.
 - In-process TUI config panel: `Ctrl+,` (editable fields, saved on Enter).
 
 | Section | Key | Type | Default |
@@ -149,9 +160,11 @@ vim-style modal input, split panes, and multi-tab sessions.
 | window | cursor_blink_ms | uint | `500` |
 | window | inactive_dim | float | `0.55` |
 | window | detect_urls | bool | `true` |
+| terminal | scrollback_lines | uint | `10000` (min 100) |
 | shell | program | string? | `$SHELL` |
 | logging | auto_log | bool | `false` |
 | logging | log_dir | string | `""` (→ `~/.mmterm`) |
+| status_bar | right | string | `""` |
 | theme | name | string | `"default"` |
 
 ### Themes
@@ -227,6 +240,29 @@ and shown in the config panel selector.
 edited as a starting point. mmterm never overwrites user edits to existing
 theme files.
 
+### Status Bar
+
+The status bar (22 px, bottom of window) shows:
+- **Left** — current input mode badge (`INSERT` / `NORMAL` / `VISUAL` / `SEARCH`).
+- **Center** — active pane OSC title (set via `\e]0;title\e\\` or `\e]2;...`);
+  suppressed during Search mode (which shows the query and match count instead).
+- **Right** — configurable segments via `[status_bar] right` in config.
+
+**Right segment syntax** — a space-separated list of tokens:
+
+| Token | Output |
+|---|---|
+| `%pwd` | Current working directory (updated via OSC 7 `file://host/path` notifications) |
+| `%date{fmt}` | Current date/time formatted with `strftime`-style `fmt` (e.g. `%date{%H:%M}`) |
+| Any literal text | Rendered verbatim |
+
+Example:
+
+```toml
+[status_bar]
+right = "%pwd  %date{%Y-%m-%d %H:%M}"
+```
+
 ### Session Logging
 - `Ctrl+Shift+L` — toggle PTY output capture for the active pane.
 - Raw bytes (including ANSI sequences) are written to
@@ -237,11 +273,37 @@ theme files.
 - The active pane shows a `● REC` badge in the status bar while recording.
 - Log file is closed (and flushed) when logging is toggled off or the pane closes.
 
+### Clipboard
+- `Ctrl+Shift+V` — paste from host clipboard (bracketed paste).
+- `Ctrl+Shift+C` — copy selection.
+- OSC 52 clipboard sync:
+  - **Write** (`OSC 52;c;<base64> ST`) — decodes the payload and copies it to
+    the host clipboard; enables `pbcopy`/`xclip`-equivalent operation from
+    remote SSH sessions (e.g. Neovim `"+y`).
+  - **Read** (`OSC 52;c;? ST`) — replies with the current host clipboard content
+    encoded as base64, allowing remote apps to paste from the host.
+
+### Debug Logging
+
+`mmterm --debug` activates `DEBUG`-level logging and writes all output to
+`~/.mmterm/debug-<timestamp>.log`. The log path is printed to stderr on
+startup, and the panic hook prints it again on crash so it is easy to find.
+
+`RUST_LOG=info mmterm` routes `INFO`-and-above log lines to stderr without
+writing a file.
+
 ### Cursor
 - Block cursor (inverted fg/bg) on the active pane.
 - Blink driven by wall-clock time (`Instant`), not frame count — rate is
   identical in debug and release builds.
 - Blink half-period configurable via `cursor_blink_ms`.
+- DECSCUSR (`CSI Ps SP q`): cursor shape control.
+  - `0`–`2` → block (blinking/steady)
+  - `3`–`4` → underline (blinking/steady)
+  - `5`–`6` → beam / bar (blinking/steady)
+  - Shape resets to block on alternate screen entry.
+  - fish, zsh vi-mode, and Neovim change the cursor shape automatically via
+    this sequence.
 
 ---
 
@@ -251,17 +313,24 @@ theme files.
 
 | Binding | Action |
 |---|---|
-| `Ctrl+Q` | Quit |
+| `Ctrl+Q` | Quit (confirmation overlay when multiple tabs/panes are open) |
+| `Ctrl+Enter` | Toggle borderless fullscreen |
 | `Ctrl+T` | New tab |
 | `Ctrl+PageUp` | Previous tab |
 | `Ctrl+PageDown` | Next tab |
+| `Ctrl+Shift+PageUp` | Move tab left |
+| `Ctrl+Shift+PageDown` | Move tab right |
 | `Ctrl+Shift+W` | Close tab |
+| `Ctrl+Shift+R` | Rename tab |
+| `Alt+1`..`Alt+9` | Jump to tab by position (1-indexed) |
 | `Ctrl++` / `Ctrl+=` | Increase font size (active tab) |
 | `Ctrl+-` | Decrease font size (active tab) |
 | `Ctrl+0` | Reset font size (active tab) |
 | `Ctrl+,` | Open config panel |
 | `Ctrl+Shift+L` | Toggle session logging (active pane) |
 | `Ctrl+Shift+V` | Paste from clipboard |
+| `Ctrl+Shift+C` | Copy selection |
+| `Ctrl+Shift+K` | Clear scrollback |
 | `Ctrl+Shift+↑/↓` | Scroll one line |
 | `Ctrl+Shift+PgUp/PgDn` | Scroll half screen |
 | `Ctrl+Shift+Home/End` | Scroll to top / bottom |
