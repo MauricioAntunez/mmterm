@@ -910,3 +910,64 @@ fn decscusr_resets_to_block_on_alternate_screen() {
     p.process(b"\x1b[?1049h"); // enter alt screen (resets shape)
     assert_eq!(p.grid.cursor_shape, super::super::grid::CursorShape::Block);
 }
+
+#[test]
+fn sgr_overline_on_sets_overline() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b[53m");
+    assert!(p.grid.overline);
+}
+
+#[test]
+fn sgr_overline_off_clears_overline() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b[53m");
+    p.process(b"\x1b[55m");
+    assert!(!p.grid.overline);
+}
+
+#[test]
+fn sgr_reset_clears_overline() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b[53m");
+    p.process(b"\x1b[0m");
+    assert!(!p.grid.overline);
+}
+
+#[test]
+fn write_char_stamps_overline_on_cell() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b[53m");
+    p.process(b"A");
+    assert!(p.grid.cell(0, 0).overline);
+}
+
+#[test]
+fn osc52_write_decodes_base64_to_pending_clipboard_write() {
+    let mut p = make_parser(80, 24);
+    // "hello" in base64 is "aGVsbG8="
+    p.process(b"\x1b]52;c;aGVsbG8=\x07");
+    assert_eq!(p.grid.pending_clipboard_write.as_deref(), Some("hello"));
+}
+
+#[test]
+fn osc52_read_request_sets_pending_clipboard_read() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b]52;c;?\x07");
+    assert!(p.grid.pending_clipboard_read);
+}
+
+#[test]
+fn osc52_invalid_base64_does_not_set_pending_write() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b]52;c;not!valid!base64!!!\x07");
+    assert!(p.grid.pending_clipboard_write.is_none());
+}
+
+#[test]
+fn osc52_write_with_st_terminator() {
+    let mut p = make_parser(80, 24);
+    // Same as write test but using ST (ESC \) instead of BEL
+    p.process(b"\x1b]52;c;aGVsbG8=\x1b\\");
+    assert_eq!(p.grid.pending_clipboard_write.as_deref(), Some("hello"));
+}

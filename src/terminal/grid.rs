@@ -48,6 +48,7 @@ pub struct Cell {
     pub italic: bool,
     pub underline: bool,
     pub strikethrough: bool,
+    pub overline: bool,
     pub reverse: bool,
     pub blink: bool,
     /// True when this is the left half of a 2-column wide character.
@@ -69,6 +70,7 @@ impl Default for Cell {
             italic: false,
             underline: false,
             strikethrough: false,
+            overline: false,
             reverse: false,
             blink: false,
             wide: false,
@@ -88,6 +90,7 @@ struct SavedCursor {
     italic: bool,
     underline: bool,
     strikethrough: bool,
+    overline: bool,
     reverse: bool,
     blink: bool,
 }
@@ -106,6 +109,7 @@ struct SavedScreen {
     italic: bool,
     underline: bool,
     strikethrough: bool,
+    overline: bool,
     reverse: bool,
     blink: bool,
     scrollback: VecDeque<Vec<Cell>>,
@@ -128,6 +132,7 @@ pub struct Grid {
     pub italic: bool,
     pub underline: bool,
     pub strikethrough: bool,
+    pub overline: bool,
     pub reverse: bool,
     pub blink: bool,
     // DECSC/DECRC saved cursor (ESC 7 / ESC 8)
@@ -166,6 +171,9 @@ pub struct Grid {
     pub scrollback_max: usize,
     // Response bytes to be written back to the PTY (DSR, DA replies)
     pub pending_responses: Vec<u8>,
+    // OSC 52 clipboard operations: text to write, or true = read request
+    pub pending_clipboard_write: Option<String>,
+    pub pending_clipboard_read: bool,
 }
 
 impl Grid {
@@ -191,6 +199,7 @@ impl Grid {
             italic: false,
             underline: false,
             strikethrough: false,
+            overline: false,
             reverse: false,
             blink: false,
             wide: false,
@@ -212,6 +221,7 @@ impl Grid {
             italic: false,
             underline: false,
             strikethrough: false,
+            overline: false,
             reverse: false,
             blink: false,
             decsc: None,
@@ -234,6 +244,8 @@ impl Grid {
             bell_pending: false,
             scrollback_max,
             pending_responses: Vec::new(),
+            pending_clipboard_write: None,
+            pending_clipboard_read: false,
         }
     }
 
@@ -256,6 +268,7 @@ impl Grid {
             italic: self.italic,
             underline: self.underline,
             strikethrough: self.strikethrough,
+            overline: self.overline,
             reverse: self.reverse,
             blink: self.blink,
             scrollback: std::mem::take(&mut self.scrollback),
@@ -274,6 +287,7 @@ impl Grid {
         self.italic = false;
         self.underline = false;
         self.strikethrough = false;
+        self.overline = false;
         self.reverse = false;
         self.blink = false;
     }
@@ -293,6 +307,7 @@ impl Grid {
             self.italic = saved.italic;
             self.underline = saved.underline;
             self.strikethrough = saved.strikethrough;
+            self.overline = saved.overline;
             self.reverse = saved.reverse;
             self.blink = saved.blink;
             self.scrollback = saved.scrollback;
@@ -350,6 +365,7 @@ impl Grid {
         let italic = self.italic;
         let underline = self.underline;
         let strikethrough = self.strikethrough;
+        let overline = self.overline;
         let reverse = self.reverse;
         let blink = self.blink;
         let wide = char_cols == 2;
@@ -364,6 +380,7 @@ impl Grid {
         cell.italic = italic;
         cell.underline = underline;
         cell.strikethrough = strikethrough;
+        cell.overline = overline;
         cell.reverse = reverse;
         cell.blink = blink;
         cell.wide = wide;
@@ -507,6 +524,7 @@ impl Grid {
             italic: false,
             underline: false,
             strikethrough: false,
+            overline: false,
             reverse: false,
             blink: false,
             wide: false,
@@ -528,6 +546,7 @@ impl Grid {
             italic: false,
             underline: false,
             strikethrough: false,
+            overline: false,
             reverse: false,
             blink: false,
             wide: false,
@@ -584,6 +603,7 @@ impl Grid {
             italic: self.italic,
             underline: self.underline,
             strikethrough: self.strikethrough,
+            overline: self.overline,
             reverse: self.reverse,
             blink: self.blink,
         });
@@ -600,6 +620,7 @@ impl Grid {
             self.italic = s.italic;
             self.underline = s.underline;
             self.strikethrough = s.strikethrough;
+            self.overline = s.overline;
             self.reverse = s.reverse;
             self.blink = s.blink;
         }

@@ -6,6 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- SGR overline (`\e[53m` / `\e[55m`): parse, store on cells, and render as a 1px line at the top of the cell
+- OSC 52 clipboard sync: write (`OSC 52;c;<base64> ST`) copies decoded text to the host clipboard; read (`OSC 52;c;? ST`) replies with current clipboard content encoded as base64 — enables copy/paste from remote SSH sessions
 - DECSCUSR (`CSI Ps SP q`): cursor shape control — block (0–2), underline (3–4), beam (5–6); shape resets to block on alternate screen entry; fish, zsh vi-mode, and Neovim now change the cursor shape automatically
 - 4 px inner padding on all pane edges so text no longer touches the border
 - DSR (`CSI 6 n`) and DA (`CSI c`) query-response: terminal now replies with cursor position and VT100 device attributes, fixing hangs and layout errors in vim, less, and other TUI apps that probe the terminal on startup
