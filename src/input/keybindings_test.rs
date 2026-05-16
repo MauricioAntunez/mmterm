@@ -1607,3 +1607,41 @@ fn insert_alt_backspace_sends_escape_del() {
     );
     assert!(matches!(a, Action::SendToPty(ref v) if v == &[0x1b, 0x7f]));
 }
+
+// ── Alt+1..9 → GoToTab ──────────────────────────────────────────────────────
+
+#[test]
+fn alt_1_goes_to_tab_0() {
+    let a = handle_key_inner(&char_key("1"), false, false, true, &insert(), 80, 24, false);
+    assert!(matches!(a, Action::GoToTab(0)));
+}
+
+#[test]
+fn alt_5_goes_to_tab_4() {
+    let a = handle_key_inner(&char_key("5"), false, false, true, &insert(), 80, 24, false);
+    assert!(matches!(a, Action::GoToTab(4)));
+}
+
+#[test]
+fn alt_9_goes_to_tab_8() {
+    let a = handle_key_inner(&char_key("9"), false, false, true, &insert(), 80, 24, false);
+    assert!(matches!(a, Action::GoToTab(8)));
+}
+
+#[test]
+fn alt_0_does_not_go_to_tab() {
+    let a = handle_key_inner(&char_key("0"), false, false, true, &insert(), 80, 24, false);
+    assert!(!matches!(a, Action::GoToTab(_)));
+}
+
+#[test]
+fn alt_1_works_from_normal_mode() {
+    let a = handle_key_inner(&char_key("1"), false, false, true, &normal(), 80, 24, false);
+    assert!(matches!(a, Action::GoToTab(0)));
+}
+
+#[test]
+fn ctrl_alt_1_does_not_go_to_tab() {
+    let a = handle_key_inner(&char_key("1"), true, false, true, &insert(), 80, 24, false);
+    assert!(!matches!(a, Action::GoToTab(_)));
+}

@@ -6,6 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `Alt+1`..`Alt+9` jump directly to a tab by position (1-indexed); intercepted globally so Insert mode does not forward the sequence to the PTY
 - active pane OSC title shown centered in the status bar; suppressed during search mode
 - `src/search.rs` and `src/geometry.rs` extract pure functions from `App` for testability; covered by 21 new unit tests
 - `Ctrl+Enter` toggles borderless fullscreen (all modes); inspired by Ghostty's Linux/Windows shortcut

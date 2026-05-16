@@ -1378,6 +1378,14 @@ impl ApplicationHandler for App {
                             w.request_redraw();
                         }
                     }
+                    Action::GoToTab(idx) => {
+                        if idx < self.tabs.len() {
+                            self.active_tab = idx;
+                            if let Some(w) = &self.window {
+                                w.request_redraw();
+                            }
+                        }
+                    }
                     Action::MoveTabLeft => {
                         self.move_tab_left();
                         if let Some(w) = &self.window {

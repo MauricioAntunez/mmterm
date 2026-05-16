@@ -27,6 +27,7 @@ pub enum Action {
     NewTab,
     NextTab,
     PrevTab,
+    GoToTab(usize),
     MoveTabLeft,
     MoveTabRight,
     CloseTab,
@@ -186,6 +187,17 @@ pub(crate) fn handle_key_inner(
     // forwarded to the PTY while the window manager switches focus.
     if alt && !ctrl && *key == Key::Named(NamedKey::Tab) {
         return Action::None;
+    }
+
+    // Alt+1..9 — jump to tab by position (1-indexed)
+    if alt && !ctrl && !shift {
+        if let Key::Character(s) = key {
+            if let Some(d) = s.chars().next().and_then(|c| c.to_digit(10)) {
+                if d >= 1 {
+                    return Action::GoToTab((d - 1) as usize);
+                }
+            }
+        }
     }
 
     // ── Per-mode handling ────────────────────────────────────────────────
