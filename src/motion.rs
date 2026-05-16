@@ -253,4 +253,59 @@ mod tests {
         assert_eq!(r, 0);
         assert_eq!(c, 10); // 'd' in "world"
     }
+
+    #[test]
+    fn word_backward_at_origin_stays_at_origin() {
+        // line 104: step_back returns None at (0,0) → early return
+        let g = make_grid("hello");
+        let (c, r) = word_backward(&g, 0, 0, 0);
+        assert_eq!((c, r), (0, 0));
+    }
+
+    #[test]
+    fn word_end_at_end_of_word_advances_to_next() {
+        // lines 148-152: already at word end → step forward first
+        let g = make_grid("hello world");
+        let (c, r) = word_end(&g, 0, 4, 0); // at 'o', end of "hello"
+        assert_eq!(r, 0);
+        assert_eq!(c, 10); // 'd', end of "world"
+    }
+
+    #[test]
+    fn word_forward_at_last_cell_stays() {
+        // line 40: step_forward returns None at last cell
+        let g = make_grid("hi");
+        let cols = g.cols;
+        let (c, r) = word_forward(&g, 0, cols - 1, g.rows - 1);
+        assert_eq!(r, g.rows - 1);
+        assert_eq!(c, cols - 1);
+    }
+
+    #[test]
+    fn char_at_col_out_of_bounds_returns_space() {
+        // line 9: col >= grid.cols → ' '
+        let g = make_grid("hi");
+        assert_eq!(char_at(&g, 0, 0, g.cols + 10), ' ');
+    }
+
+    #[test]
+    fn char_at_row_out_of_bounds_returns_space() {
+        // line 15: row >= grid.rows → ' '
+        let g = make_grid("hi");
+        assert_eq!(char_at(&g, 0, g.rows + 5, 0), ' ');
+    }
+
+    #[test]
+    fn word_forward_with_scroll_offset_reads_scrollback() {
+        // lines 18-22: scroll_offset > 0 path in char_at
+        let mut g = make_grid("hello world and more text here now ");
+        // push content into scrollback by writing more lines
+        for _ in 0..g.rows + 2 {
+            for c in "next line     ".chars() {
+                g.write_char(c);
+            }
+        }
+        // With scroll_offset > 0 the function should not panic
+        let (_, _) = word_forward(&g, 1, 0, 0);
+    }
 }
