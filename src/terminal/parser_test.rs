@@ -765,3 +765,63 @@ fn dsr_accumulates_with_other_responses() {
     p.process(b"\x1b[6n\x1b[c"); // DSR followed immediately by DA
     assert_eq!(p.grid.pending_responses, b"\x1b[1;1R\x1b[?1;0c");
 }
+
+#[test]
+fn decsc_saves_and_decrc_restores_cursor_position() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b[5;10H"); // move to row 4, col 9
+    p.process(b"\x1b7"); // DECSC
+    p.process(b"\x1b[1;1H"); // move away
+    p.process(b"\x1b8"); // DECRC
+    assert_eq!(p.grid.cursor_row, 4);
+    assert_eq!(p.grid.cursor_col, 9);
+}
+
+#[test]
+fn decsc_saves_and_decrc_restores_sgr_attributes() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b[1;4;7m"); // bold + underline + reverse
+    p.process(b"\x1b7"); // DECSC
+    p.process(b"\x1b[0m"); // reset SGR
+    assert!(!p.grid.bold);
+    assert!(!p.grid.underline);
+    assert!(!p.grid.reverse);
+    p.process(b"\x1b8"); // DECRC
+    assert!(p.grid.bold);
+    assert!(p.grid.underline);
+    assert!(p.grid.reverse);
+}
+
+#[test]
+fn decsc_saves_and_decrc_restores_colors() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b[31m"); // red foreground
+    p.process(b"\x1b[42m"); // green background
+    let saved_fg = p.grid.fg;
+    let saved_bg = p.grid.bg;
+    p.process(b"\x1b7"); // DECSC
+    p.process(b"\x1b[0m"); // reset
+    p.process(b"\x1b8"); // DECRC
+    assert_eq!(p.grid.fg, saved_fg);
+    assert_eq!(p.grid.bg, saved_bg);
+}
+
+#[test]
+fn decrc_without_decsc_is_noop() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b[5;10H");
+    p.process(b"\x1b8"); // DECRC with no prior DECSC — should do nothing
+    assert_eq!(p.grid.cursor_row, 4);
+    assert_eq!(p.grid.cursor_col, 9);
+}
+
+#[test]
+fn decsc_decrc_clamps_cursor_to_resized_grid() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b[20;70H"); // row 19, col 69
+    p.process(b"\x1b7"); // DECSC
+    p.grid.resize(40, 10); // shrink grid
+    p.process(b"\x1b8"); // DECRC — must clamp
+    assert!(p.grid.cursor_row <= 9);
+    assert!(p.grid.cursor_col <= 39);
+}

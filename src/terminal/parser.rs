@@ -391,14 +391,12 @@ impl Perform for Performer<'_> {
                 }
             }
             ([], b'7') => {
-                // DECSC: save cursor position
-                self.grid.saved_cursor_col = self.grid.cursor_col;
-                self.grid.saved_cursor_row = self.grid.cursor_row;
+                // DECSC: save cursor position and SGR attributes
+                self.grid.save_cursor();
             }
             ([], b'8') => {
-                // DECRC: restore cursor position
-                self.grid.cursor_col = self.grid.saved_cursor_col.min(self.grid.cols - 1);
-                self.grid.cursor_row = self.grid.saved_cursor_row.min(self.grid.rows - 1);
+                // DECRC: restore cursor position and SGR attributes
+                self.grid.restore_cursor();
             }
             _ => {}
         }

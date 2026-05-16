@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - DSR (`CSI 6 n`) and DA (`CSI c`) query-response: terminal now replies with cursor position and VT100 device attributes, fixing hangs and layout errors in vim, less, and other TUI apps that probe the terminal on startup
+- DECSC/DECRC (`ESC 7` / `ESC 8`) now save and restore SGR attributes (colors, bold, dim, underline, reverse, blink, strikethrough) in addition to cursor position
 - visual mode: vim-style scrollback selection — navigate freely with `hjkl`/arrows (scrolls at boundaries), press `v` to set the anchor, extend with `w`/`b`/`e` word motions, then `y`/`Ctrl+C` to copy; `Y` yanks the current line, `o` swaps anchor and cursor
 - configurable status bar right segments via `[status_bar] right` in config; supports `%pwd` (OSC 7 cwd) and `%date{fmt}` (strftime) tokens
 - `Ctrl+Q` shows a confirmation overlay when multiple tabs or panes are open; single-pane sessions exit immediately

@@ -66,6 +66,19 @@ impl Default for Cell {
     }
 }
 
+struct SavedCursor {
+    col: usize,
+    row: usize,
+    fg: Color,
+    bg: Color,
+    bold: bool,
+    dim: bool,
+    underline: bool,
+    strikethrough: bool,
+    reverse: bool,
+    blink: bool,
+}
+
 struct SavedScreen {
     cells: Vec<Cell>,
     cursor_col: usize,
@@ -102,9 +115,8 @@ pub struct Grid {
     pub strikethrough: bool,
     pub reverse: bool,
     pub blink: bool,
-    // DECSC/DECRC saved cursor
-    pub saved_cursor_col: usize,
-    pub saved_cursor_row: usize,
+    // DECSC/DECRC saved cursor (ESC 7 / ESC 8)
+    decsc: Option<SavedCursor>,
     // Scrollback: lines that have scrolled off the top (oldest first)
     pub scrollback: VecDeque<Vec<Cell>>,
     // Theme colors
@@ -183,8 +195,7 @@ impl Grid {
             strikethrough: false,
             reverse: false,
             blink: false,
-            saved_cursor_col: 0,
-            saved_cursor_row: 0,
+            decsc: None,
             scrollback: VecDeque::new(),
             default_fg,
             default_bg,
@@ -531,6 +542,36 @@ impl Grid {
                     col += 1;
                 }
             }
+        }
+    }
+
+    pub fn save_cursor(&mut self) {
+        self.decsc = Some(SavedCursor {
+            col: self.cursor_col,
+            row: self.cursor_row,
+            fg: self.fg,
+            bg: self.bg,
+            bold: self.bold,
+            dim: self.dim,
+            underline: self.underline,
+            strikethrough: self.strikethrough,
+            reverse: self.reverse,
+            blink: self.blink,
+        });
+    }
+
+    pub fn restore_cursor(&mut self) {
+        if let Some(s) = &self.decsc {
+            self.cursor_col = s.col.min(self.cols - 1);
+            self.cursor_row = s.row.min(self.rows - 1);
+            self.fg = s.fg;
+            self.bg = s.bg;
+            self.bold = s.bold;
+            self.dim = s.dim;
+            self.underline = s.underline;
+            self.strikethrough = s.strikethrough;
+            self.reverse = s.reverse;
+            self.blink = s.blink;
         }
     }
 }
