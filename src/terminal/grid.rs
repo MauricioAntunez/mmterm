@@ -340,11 +340,8 @@ impl Grid {
             self.advance_row();
         }
 
-        let (fg, bg) = if self.reverse {
-            (self.bg, self.fg)
-        } else {
-            (self.fg, self.bg)
-        };
+        let fg = self.fg;
+        let bg = self.bg;
         let bold = self.bold;
         let dim = self.dim;
         let italic = self.italic;
