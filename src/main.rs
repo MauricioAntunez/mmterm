@@ -1,3 +1,4 @@
+mod app_state;
 mod config;
 mod font;
 mod geometry;
@@ -14,6 +15,8 @@ mod terminal;
 mod theme;
 mod tui_config;
 mod ui;
+
+pub use app_state::{AppEffect, AppState, PaneEntry, TabState};
 
 #[cfg(test)]
 #[path = "main_test.rs"]
@@ -43,34 +46,6 @@ use crate::input::keybindings::Action;
 use crate::terminal::grid::GridColors;
 use crate::theme::{ResolvedTheme, default_theme, install_bundled_themes, load_theme, themes_dir};
 use crate::ui::layout::{STATUS_BAR_H, TAB_BAR_H};
-
-// ── Per-pane state ───────────────────────────────────────────────────────────
-
-struct PaneEntry {
-    pane: Pane,
-    pty: pty::PtySession,
-    rx: Receiver<Vec<u8>>,
-    /// Active log file; None when logging is off. Dropped (closed) on toggle-off.
-    log_file: Option<std::fs::File>,
-}
-
-// ── Per-tab state ────────────────────────────────────────────────────────────
-
-struct TabState {
-    panes: HashMap<usize, PaneEntry>,
-    layout: Layout,
-    active: usize,
-    /// Session-only font metrics — not saved to config
-    metrics: FontMetrics,
-    /// Optional user-defined name; falls back to numeric index
-    name: Option<String>,
-    /// Temporary full-screen zoom of the active pane
-    zoomed: bool,
-    /// True when PTY output arrived while this tab was not active
-    has_activity: bool,
-    /// Set when a BEL is received; expires after a short flash duration
-    bell_flash_until: Option<Instant>,
-}
 
 // ── App ──────────────────────────────────────────────────────────────────────
 
