@@ -307,12 +307,6 @@ In PR context:
 km score diff main   # per-dimension delta; negative deltas need justification
 ```
 
-Improvement phases (raise `fail_below` after each):
-- **Phase A** — `src/main.rs`: split `window_event()` and `redraw()`
-- **Phase B** — `src/renderer/text.rs`: split `draw_pane()`
-- **Phase C** — `src/terminal/parser.rs` + `src/input/keybindings.rs`: split `csi_dispatch()` and `handle_key_inner()`
-- **Phase D** — `src/app_state.rs`: split `dispatch_action()` (discovered hotspot, Cognitive 144)
-
 ## Critical Invariants
 
 - `renderer.font_px` is the config default reference, not the active size — always use `tab.metrics.font_px`
