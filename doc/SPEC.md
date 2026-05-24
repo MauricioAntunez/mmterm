@@ -298,6 +298,53 @@ right = "%pwd  %date{%Y-%m-%d %H:%M}"
 - The active pane shows a `● REC` badge in the status bar while recording.
 - Log file is closed (and flushed) when logging is toggled off or the pane closes.
 
+### Session Persistence
+
+- On quit (`Ctrl+Q` or window close), if `general.restore_session = true`, a
+  centered dialog is shown over the dimmed terminal:
+
+  ```
+  Save session before quitting?
+  [s] Save and quit   [q] Quit   [Esc] Cancel
+  ```
+
+- `s` / `S` — saves `~/.config/mmterm/session.toml` and exits.
+- `q` / `Q` / `n` / `Enter` — exits without saving.
+- `Esc` — cancels the quit and returns to normal input.
+
+#### What is saved (`session.toml`)
+
+| Field | Description |
+|---|---|
+| `active_tab` | Index of the focused tab |
+| Per tab: `name` | Tab name set by the user (if any) |
+| Per tab: `active_pane` | DFS-order index of the focused pane |
+| Per tab: `pane_cwds` | Working directory of each pane (via `/proc/<pid>/cwd`) |
+| Per tab: `layout` | Full binary split tree with `dir` (`H`/`V`) and `ratio` per node |
+
+#### What is NOT saved
+
+- PTY content, scrollback, or cursor state — each pane opens a fresh shell.
+- Per-tab font size, zoom, scroll offset — session-only state.
+
+#### Restore
+
+On launch, if `session.toml` exists and `restore_session = true`, each saved
+tab is recreated: panes are spawned in DFS leaf order with their saved CWDs,
+and the split tree is reconstructed with the original ratios.
+
+- CWD no longer exists → falls back to `$HOME`.
+- File missing or corrupt → silently falls back to a blank tab.
+
+#### Config (`[general]`)
+
+```toml
+[general]
+restore_session = true   # set to false to disable the save dialog and always quit immediately
+```
+
+Toggling via the TUI config panel (`Ctrl+,`) under the **General** section.
+
 ### Clipboard
 - `Ctrl+Shift+V` — paste from host clipboard (bracketed paste).
 - `Ctrl+Shift+C` — copy selection.
@@ -338,7 +385,7 @@ writing a file.
 
 | Binding | Action |
 |---|---|
-| `Ctrl+Q` | Quit (confirmation overlay when multiple tabs/panes are open) |
+| `Ctrl+Q` | Quit — shows save-session dialog when `restore_session = true`; otherwise confirmation overlay when multiple tabs/panes are open |
 | `Ctrl+Enter` | Toggle borderless fullscreen |
 | `Ctrl+T` | New tab |
 | `Ctrl+PageUp` | Previous tab |

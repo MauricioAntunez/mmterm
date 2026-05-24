@@ -55,6 +55,8 @@ pub enum Action {
     ResizePaneDown,
     ResizePaneUp,
     Quit,
+    QuitSaveSession,
+    QuitNoSave,
     None,
 }
 
@@ -128,7 +130,8 @@ pub(crate) fn handle_key_inner(
                 InputMode::Visual { .. }
                 | InputMode::RenameTab { .. }
                 | InputMode::Search { .. }
-                | InputMode::CommandPalette { .. } => InputMode::Insert,
+                | InputMode::CommandPalette { .. }
+                | InputMode::QuitSave => InputMode::Insert,
             };
             return Action::SetMode(next);
         }
@@ -240,6 +243,7 @@ pub(crate) fn handle_key_inner(
         InputMode::RenameTab { .. } => Action::None,
         InputMode::Search { .. } => Action::None,
         InputMode::CommandPalette { .. } => Action::None,
+        InputMode::QuitSave => handle_quit_save(key),
     }
 }
 
@@ -463,6 +467,22 @@ fn handle_visual(
             "q" => Action::SetMode(InputMode::Insert),
             _ => Action::None,
         },
+        _ => Action::None,
+    }
+}
+
+fn handle_quit_save(key: &Key) -> Action {
+    match key {
+        Key::Character(s) if s.eq_ignore_ascii_case("s") => Action::QuitSaveSession,
+        Key::Character(s)
+            if s.eq_ignore_ascii_case("q")
+                || s.eq_ignore_ascii_case("n")
+                || s.eq_ignore_ascii_case("y") =>
+        {
+            Action::QuitNoSave
+        }
+        Key::Named(NamedKey::Enter) => Action::QuitNoSave,
+        Key::Named(NamedKey::Escape) => Action::SetMode(InputMode::Insert),
         _ => Action::None,
     }
 }

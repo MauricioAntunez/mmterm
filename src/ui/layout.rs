@@ -383,6 +383,70 @@ impl Layout {
         }
         best.map(|(id, _)| id)
     }
+
+    /// Serialize the layout tree for session persistence.
+    ///
+    /// Returns `(node, id_order)` where `id_order` lists pane IDs in DFS
+    /// leaf order; `node` uses slot indices (position in `id_order`) as leaf
+    /// values so the caller can substitute fresh IDs on restore.
+    pub fn to_saved_node(&self) -> (crate::session::SavedNode, Vec<usize>) {
+        let mut id_order = Vec::new();
+        let node = node_to_saved(&self.root, &mut id_order);
+        (node, id_order)
+    }
+
+    /// Reconstruct a `Layout` from a saved node tree.
+    ///
+    /// `slot_to_id[slot]` must contain the new pane ID for each leaf slot in
+    /// the saved tree. `w` and `h` are the current window pixel dimensions.
+    pub fn from_saved_node(
+        node: &crate::session::SavedNode,
+        slot_to_id: &[usize],
+        w: u32,
+        h: u32,
+    ) -> Self {
+        Self {
+            root: saved_to_node(node, slot_to_id),
+            width: w,
+            height: h,
+        }
+    }
+}
+
+fn node_to_saved(node: &Node, id_order: &mut Vec<usize>) -> crate::session::SavedNode {
+    match node {
+        Node::Leaf(id) => {
+            let slot = id_order.len();
+            id_order.push(*id);
+            crate::session::SavedNode::Leaf { slot }
+        }
+        Node::Split { dir, ratio, a, b } => crate::session::SavedNode::Split {
+            dir: match dir {
+                SplitDir::H => crate::session::SavedSplitDir::H,
+                SplitDir::V => crate::session::SavedSplitDir::V,
+            },
+            ratio: *ratio,
+            a: Box::new(node_to_saved(a, id_order)),
+            b: Box::new(node_to_saved(b, id_order)),
+        },
+    }
+}
+
+fn saved_to_node(node: &crate::session::SavedNode, slot_to_id: &[usize]) -> Node {
+    match node {
+        crate::session::SavedNode::Leaf { slot } => {
+            Node::Leaf(slot_to_id.get(*slot).copied().unwrap_or(0))
+        }
+        crate::session::SavedNode::Split { dir, ratio, a, b } => Node::Split {
+            dir: match dir {
+                crate::session::SavedSplitDir::H => SplitDir::H,
+                crate::session::SavedSplitDir::V => SplitDir::V,
+            },
+            ratio: *ratio,
+            a: Box::new(saved_to_node(a, slot_to_id)),
+            b: Box::new(saved_to_node(b, slot_to_id)),
+        },
+    }
 }
 
 #[cfg(test)]

@@ -22,6 +22,7 @@ Renders entirely via a CPU pixel buffer — no GPU, no OpenGL, no Vulkan.
 - **Pane zoom** — full-window focus for the active pane
 - **Session logging** — capture PTY output per-pane to `~/.mmterm/` with `Ctrl+Shift+L`
 - **Color emoji** — rendered via FreeType CBDT/CBLC
+- **Session persistence** — tabs, splits, and per-pane CWDs are saved on quit and restored on next launch; a centered dialog asks `[s] Save and quit / [q] Quit / [Esc] Cancel`; toggle with `restore_session` in `[general]`
 - **Command palette** — `Ctrl+Shift+P` fuzzy-filter and run any action by name; shows the keyboard shortcut for each entry
 - **TUI config editor** — edit settings in-process with `Ctrl+,`
 - **Zero-config startup** — bundled JetBrains Mono fallback font (regular, bold, italic)
@@ -113,7 +114,7 @@ You can also edit settings live with `Ctrl+,`.
 
 | Binding | Action |
 |---|---|
-| `Ctrl+Q` | Quit (confirmation overlay when multiple tabs/panes are open) |
+| `Ctrl+Q` | Quit — when `restore_session = true` shows save-session dialog; otherwise confirmation overlay when multiple tabs/panes are open |
 | `Ctrl+Enter` | Toggle borderless fullscreen |
 | `Ctrl+,` | Open config panel |
 | `Ctrl+Shift+P` | Open command palette |

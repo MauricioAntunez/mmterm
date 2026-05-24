@@ -51,6 +51,7 @@ pub enum AppEffect {
     SendToPty(Vec<u8>),
     Paste,
     ResizePane { split_h: bool, delta: f32 },
+    SaveSessionAndQuit,
 }
 
 // ── AppState ─────────────────────────────────────────────────────────────────
@@ -745,14 +746,21 @@ impl AppState {
                 vec![AppEffect::Redraw]
             }
             Action::Quit => {
-                let total_panes = self.tabs.iter().map(|t| t.panes.len()).sum::<usize>();
-                if crate::tabs::needs_quit_confirm(self.tabs.len(), total_panes) {
-                    self.quit_pending = true;
-                    vec![AppEffect::QuitPending]
+                if self.config.general.restore_session {
+                    self.mode = crate::input::InputMode::QuitSave;
+                    vec![AppEffect::Redraw]
                 } else {
-                    vec![AppEffect::Quit]
+                    let total_panes = self.tabs.iter().map(|t| t.panes.len()).sum::<usize>();
+                    if crate::tabs::needs_quit_confirm(self.tabs.len(), total_panes) {
+                        self.quit_pending = true;
+                        vec![AppEffect::QuitPending]
+                    } else {
+                        vec![AppEffect::Quit]
+                    }
                 }
             }
+            Action::QuitSaveSession => vec![AppEffect::SaveSessionAndQuit],
+            Action::QuitNoSave => vec![AppEffect::Quit],
             Action::None => vec![],
         }
     }
@@ -970,19 +978,59 @@ mod tests {
 
     // ── Quit ─────────────────────────────────────────────────────────────────
 
+    fn make_state_no_restore() -> AppState {
+        let mut cfg = Config::default();
+        cfg.general.restore_session = false;
+        AppState::new(cfg, crate::theme::default_theme())
+    }
+
     #[test]
     fn dispatch_quit_single_tab_returns_quit_effect() {
-        let mut s = make_state_with_tabs(1);
+        let mut s = make_state_no_restore();
+        for _ in 0..1 {
+            s.add_empty_tab();
+        }
         let effects = s.dispatch_action(Action::Quit);
         assert!(effects.iter().any(|e| matches!(e, AppEffect::Quit)));
     }
 
     #[test]
     fn dispatch_quit_multiple_tabs_returns_quit_pending() {
-        let mut s = make_state_with_tabs(2);
+        let mut s = make_state_no_restore();
+        for _ in 0..2 {
+            s.add_empty_tab();
+        }
         let effects = s.dispatch_action(Action::Quit);
         assert!(effects.iter().any(|e| matches!(e, AppEffect::QuitPending)));
         assert!(s.quit_pending);
+    }
+
+    #[test]
+    fn dispatch_quit_with_restore_session_enters_quit_save_mode() {
+        let mut s = make_state_with_tabs(1);
+        // restore_session defaults to true
+        assert!(s.config.general.restore_session);
+        let effects = s.dispatch_action(Action::Quit);
+        assert!(effects.iter().any(|e| matches!(e, AppEffect::Redraw)));
+        assert!(matches!(s.mode, crate::input::InputMode::QuitSave));
+    }
+
+    #[test]
+    fn dispatch_quit_no_save_returns_quit_effect() {
+        let mut s = make_state_with_tabs(1);
+        let effects = s.dispatch_action(Action::QuitNoSave);
+        assert!(effects.iter().any(|e| matches!(e, AppEffect::Quit)));
+    }
+
+    #[test]
+    fn dispatch_quit_save_session_returns_save_and_quit_effect() {
+        let mut s = make_state_with_tabs(1);
+        let effects = s.dispatch_action(Action::QuitSaveSession);
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, AppEffect::SaveSessionAndQuit))
+        );
     }
 
     // ── Delegated effects ─────────────────────────────────────────────────────
@@ -1371,9 +1419,11 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_quit_with_pane_needs_confirm() {
-        let mut s = make_state_with_pane();
-        // 1 tab, 1 pane → no confirm
+    fn dispatch_quit_with_pane_no_restore_no_confirm() {
+        let mut s = make_state_no_restore();
+        s.add_empty_tab();
+        s.add_test_pane();
+        // 1 tab, 1 pane, restore_session = false → quit immediately
         let effects = s.dispatch_action(Action::Quit);
         assert!(effects.iter().any(|e| matches!(e, AppEffect::Quit)));
     }

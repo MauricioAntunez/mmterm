@@ -29,6 +29,11 @@ log_dir  = ""
 # Example: right = "%pwd  %date{%H:%M}"
 right = "%pwd"
 
+[general]
+# Save and restore tabs, splits, and CWDs across sessions.
+# When true, quitting shows a prompt: [s] save and quit  [q] quit  [Esc] cancel
+restore_session = true
+
 [colors]
 background = "#121212"
 foreground = "#a0a0a0"

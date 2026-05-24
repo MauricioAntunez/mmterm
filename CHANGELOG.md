@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - clipboard `get_or_insert_with` panic in headless CI: replace `.expect()` with `.ok()` so Copy and VisualYankLine actions degrade gracefully when no display is available
 
 ### Added
+- session persistence: tabs, splits, and pane CWDs are saved on quit and restored on next launch; quitting shows a prompt `[s] save and quit  [q] quit  [Esc] cancel`; configurable via `[general] restore_session`
 - command palette (`Ctrl+Shift+P`): overlay to fuzzy-filter and execute any action by name; navigate with ↑/↓, confirm with Enter, dismiss with Esc
 - DCS sequence dispatch: `hook()`, `put()`, and `unhook()` now route sixel graphics (`DCS...q...ST`) to a self-contained decoder; unknown DCS sequences are silently discarded
 - sixel graphics: images decoded into RGBA pixel buffers and blitted as a post-pass overlay in the renderer, anchored to the cursor position at emission time; palette define (`#n;2;r;g;b`, `#n;1;h;l;s`), RLE (`!count<byte>`), carriage-return (`$`), and band-linefeed (`-`) are all supported

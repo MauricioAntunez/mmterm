@@ -1,6 +1,6 @@
 use crate::config::{
-    ColorsConfig, Config, FontConfig, LogConfig, ShellConfig, StatusBarConfig, TerminalConfig,
-    ThemeConfig, WindowConfig,
+    ColorsConfig, Config, FontConfig, GeneralConfig, LogConfig, ShellConfig, StatusBarConfig,
+    TerminalConfig, ThemeConfig, WindowConfig,
 };
 use crate::theme::{list_themes, themes_dir};
 
@@ -24,6 +24,7 @@ const F_COLOR_CUR: usize = 15;
 const F_COLOR_SEL: usize = 16;
 const F_PALETTE: usize = 17; // F_PALETTE + 0..15
 const F_STATUS_BAR_RIGHT: usize = 33;
+const F_RESTORE_SESSION: usize = 34;
 
 const PALETTE_LABELS: [&str; 16] = [
     "Palette 0  black",
@@ -235,6 +236,15 @@ impl ConfigPanel {
             value: cfg.status_bar.right.clone(),
             kind: FieldKind::OptText,
             section: Some("Status Bar"),
+        });
+
+        // ── General ─────────────────────────────────────────────────────────
+        fields.push(Field {
+            label: "Restore Session",
+            hint: "restore tabs, splits, and CWDs on next launch",
+            value: cfg.general.restore_session.to_string(),
+            kind: FieldKind::Bool,
+            section: Some("General"),
         });
 
         Self {
@@ -465,6 +475,10 @@ impl ConfigPanel {
 
         let status_bar_right = get(F_STATUS_BAR_RIGHT);
 
+        let restore_session = get(F_RESTORE_SESSION)
+            .parse::<bool>()
+            .map_err(|_| "Invalid restore_session — use true or false")?;
+
         Ok(Config {
             font: FontConfig { family, size },
             window: WindowConfig {
@@ -489,6 +503,7 @@ impl ConfigPanel {
             status_bar: StatusBarConfig {
                 right: status_bar_right,
             },
+            general: GeneralConfig { restore_session },
         })
     }
 

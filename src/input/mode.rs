@@ -24,4 +24,6 @@ pub enum InputMode {
         query: String,
         selected: usize,
     },
+    /// Quit was triggered; waiting for save-session decision.
+    QuitSave,
 }

@@ -9,7 +9,7 @@ Full spec: `doc/SPEC.md`. This file is the dense implementation reference.
 |---|---|
 | `src/main.rs` | `App`, `TabState`, `PaneEntry`; event loop; `match action` dispatch |
 | `src/input/keybindings.rs` | `Action` enum; `handle_key`, `handle_ctrl_w` |
-| `src/input/mode.rs` | `InputMode` enum (Insert / Normal / Visual) |
+| `src/input/mode.rs` | `InputMode` enum (Insert / Normal / Visual / QuitSave) |
 | `src/pty/session.rs` | `PtySession` — fork PTY, spawn shell, read/write bytes |
 | `src/terminal/grid.rs` | `Grid`, `Cell`, `Color` — VT cell grid + scrollback |
 | `src/terminal/parser.rs` | `vte` performer → `Grid` mutations |
@@ -18,6 +18,7 @@ Full spec: `doc/SPEC.md`. This file is the dense implementation reference.
 | `src/ui/layout.rs` | `Layout`, `SplitDir`, `Node` (binary-tree pane splits) |
 | `src/ui/pane.rs` | `Pane` — scroll offset, selection, cursor |
 | `src/config.rs` | `Config`, `*Config` structs — TOML load/save |
+| `src/session.rs` | `SavedSession`, `SavedTab`, `SavedNode` — session persistence save/load |
 | `src/theme.rs` | `ResolvedTheme`, `load_theme()`, `install_bundled_themes()` |
 | `src/themes/*.toml` | 9 bundled theme files embedded via `include_str!` |
 | `src/tui_config.rs` | `ConfigPanel`, `Field` — in-process config editor |
@@ -62,6 +63,19 @@ Constants in `src/ui/layout.rs`: `TAB_BAR_H = 22`, `STATUS_BAR_H = 22`.
 - When zoomed, `redraw()` builds a single `PaneView` at `[0, TAB_BAR_H, w, h - TAB_BAR_H - STATUS_BAR_H]` instead of iterating the layout tree; separators are suppressed
 - `do_split` and `do_close_pane` set `zoomed = false` before acting — layout is never modified
 - Mouse hit-testing (`pane_at_pixel`, `pixel_to_cell`) uses the original layout rects while zoomed; cell coordinates may be slightly off in zoomed mode
+
+## Session Persistence (implemented)
+
+- Triggered by `Ctrl+Q` (or window close) when `config.general.restore_session = true`
+- `InputMode::QuitSave` — new mode; `renderer.draw_save_session_confirm()` draws a centered dialog (same style as `draw_quit_confirm`) over the dimmed terminal
+- Keys in `QuitSave`: `s`/`S` → `Action::QuitSaveSession` → `AppEffect::SaveSessionAndQuit`; `q`/`n`/`Enter` → `Action::QuitNoSave` → `AppEffect::Quit`; `Esc` → `SetMode(Insert)`
+- `App::build_saved_session()` collects tab names, active panes, CWDs (via `pty.cwd()` → `/proc/<pid>/cwd`), and layout trees
+- `Layout::to_saved_node()` walks the `Node` tree in DFS order, returns `(SavedNode, Vec<pane_id>)` with serial slot indices for leaves
+- `Layout::from_saved_node(node, slot_to_id, w, h)` reconstructs the tree substituting slot indices with new pane IDs
+- Saved to `~/.config/mmterm/session.toml` via `session::save()`; atomic write (`.tmp` → rename)
+- On startup `resumed()`: if `restore_session = true` and `session::load()` succeeds, `App::restore_session()` spawns panes with saved CWDs and rebuilds layout trees; CWDs that no longer exist fall back to `$HOME`
+- What is saved: `active_tab`, per-tab `name`, `active_pane` slot, `pane_cwds`, `layout` tree with `dir`/`ratio`
+- What is NOT saved: PTY content, scrollback, per-tab font size, zoom, scroll offset
 
 ## OSC 8 Hyperlinks (implemented)
 
@@ -143,7 +157,7 @@ pub enum Action {
     VisualYankLine,
     VisualBoundaryUp(usize), VisualBoundaryDown(usize),
     ZoomPane,
-    Quit, None,
+    Quit, QuitSaveSession, QuitNoSave, None,
 }
 ```
 

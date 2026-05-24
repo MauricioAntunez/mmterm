@@ -34,6 +34,27 @@ pub struct Config {
 
     #[serde(default)]
     pub status_bar: StatusBarConfig,
+
+    #[serde(default)]
+    pub general: GeneralConfig,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneralConfig {
+    #[serde(default = "default_true")]
+    pub restore_session: bool,
+}
+
+impl Default for GeneralConfig {
+    fn default() -> Self {
+        Self {
+            restore_session: default_true(),
+        }
+    }
 }
 
 fn default_status_bar_right() -> String {

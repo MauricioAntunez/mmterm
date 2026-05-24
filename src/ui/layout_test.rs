@@ -410,3 +410,89 @@ fn nudge_pane_nested_innermost_v() {
     let after_0 = layout.rects().iter().find(|(id, _)| *id == 0).unwrap().1[3];
     assert!(after_0 > before_0);
 }
+
+// ── Session round-trip ────────────────────────────────────────────────────────
+
+#[test]
+fn to_saved_node_single_pane_returns_leaf_slot_0() {
+    let layout = Layout::new(42, W, H);
+    let (node, id_order) = layout.to_saved_node();
+    assert_eq!(id_order, vec![42]);
+    assert!(matches!(node, crate::session::SavedNode::Leaf { slot: 0 }));
+}
+
+#[test]
+fn to_saved_node_h_split_dfs_order() {
+    // After split(0, 1, H): tree = Split(H, Leaf(0), Leaf(1))
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    let (node, id_order) = layout.to_saved_node();
+    assert_eq!(id_order, vec![0, 1]);
+    let crate::session::SavedNode::Split { a, b, .. } = node else {
+        panic!("expected Split");
+    };
+    assert!(matches!(
+        a.as_ref(),
+        crate::session::SavedNode::Leaf { slot: 0 }
+    ));
+    assert!(matches!(
+        b.as_ref(),
+        crate::session::SavedNode::Leaf { slot: 1 }
+    ));
+}
+
+#[test]
+fn roundtrip_single_pane_preserves_rects() {
+    let layout = Layout::new(7, W, H);
+    let rects_before = layout.rects();
+    let (node, id_order) = layout.to_saved_node();
+    // Map slot 0 → pane ID 99 (simulating a restored session with a new ID)
+    let slot_to_id = vec![99usize];
+    let _ = id_order; // id_order has [7]; we use a new id
+    let restored = Layout::from_saved_node(&node, &slot_to_id, W, H);
+    let rects_after = restored.rects();
+    assert_eq!(rects_before.len(), rects_after.len());
+    // Rects should have same geometry, only pane IDs differ
+    assert_eq!(rects_before[0].1, rects_after[0].1);
+    assert_eq!(rects_after[0].0, 99);
+}
+
+#[test]
+fn roundtrip_h_split_preserves_rects_and_ids() {
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    let rects_before: std::collections::HashMap<_, _> = layout.rects().into_iter().collect();
+
+    let (node, _id_order) = layout.to_saved_node();
+    // Restore with new IDs: slot 0 → 10, slot 1 → 11
+    let slot_to_id = vec![10usize, 11];
+    let restored = Layout::from_saved_node(&node, &slot_to_id, W, H);
+    let rects_after: std::collections::HashMap<_, _> = restored.rects().into_iter().collect();
+
+    assert_eq!(rects_after[&10], rects_before[&0]);
+    assert_eq!(rects_after[&11], rects_before[&1]);
+}
+
+#[test]
+fn roundtrip_three_pane_nested() {
+    // Layout: H{ V{ Leaf(0), Leaf(2) }, Leaf(1) }
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.split(0, 2, SplitDir::V);
+    let rects_before: std::collections::HashMap<_, _> = layout.rects().into_iter().collect();
+
+    let (node, id_order) = layout.to_saved_node();
+    assert_eq!(id_order.len(), 3);
+
+    // Restore with shifted IDs: slot i → i + 20
+    let slot_to_id: Vec<usize> = (0..id_order.len()).map(|i| i + 20).collect();
+    let restored = Layout::from_saved_node(&node, &slot_to_id, W, H);
+    let rects_after: std::collections::HashMap<_, _> = restored.rects().into_iter().collect();
+
+    for (old_id, new_id) in id_order.iter().zip(slot_to_id.iter()) {
+        assert_eq!(
+            rects_before[old_id], rects_after[new_id],
+            "rect mismatch for pane originally {old_id} → {new_id}"
+        );
+    }
+}

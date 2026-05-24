@@ -1393,6 +1393,79 @@ impl Renderer {
             self.draw_str(buf, bw, bh, bx + pad_x, ty, line, fp, false, fg);
         }
     }
+
+    pub fn draw_save_session_confirm(
+        &mut self,
+        buf: &mut [u32],
+        bw: u32,
+        bh: u32,
+        theme: &ResolvedTheme,
+    ) {
+        for p in buf.iter_mut() {
+            let r = ((*p >> 16) & 0xFF) / 3;
+            let g = ((*p >> 8) & 0xFF) / 3;
+            let b = (*p & 0xFF) / 3;
+            *p = 0xff_00_00_00 | (r << 16) | (g << 8) | b;
+        }
+
+        let fp = self.status_font_px;
+        let cw = self.glyphs.rasterize('M', fp, false).1;
+        let line_h = (fp * 1.8) as u32;
+        let pad_x = cw * 3;
+        let pad_y = line_h;
+
+        let lines = [
+            "Save session before quitting?",
+            "[s] Save and quit   [q] Quit   [Esc] Cancel",
+        ];
+        let max_chars = lines.iter().map(|l| l.len() as u32).max().unwrap_or(1);
+        let box_w = max_chars * cw + pad_x * 2;
+        let box_h = lines.len() as u32 * line_h + pad_y * 2;
+        let bx = bw.saturating_sub(box_w) / 2;
+        let by = bh.saturating_sub(box_h) / 2;
+
+        let bg = color_u32(theme.background);
+        let border = color_u32(theme.palette[3]);
+
+        for dy in 0..box_h {
+            for dx in 0..box_w {
+                let idx = ((by + dy) * bw + bx + dx) as usize;
+                if idx < buf.len() {
+                    buf[idx] = bg;
+                }
+            }
+        }
+        for dx in 0..box_w {
+            let t = (by * bw + bx + dx) as usize;
+            let b = ((by + box_h - 1) * bw + bx + dx) as usize;
+            if t < buf.len() {
+                buf[t] = border;
+            }
+            if b < buf.len() {
+                buf[b] = border;
+            }
+        }
+        for dy in 0..box_h {
+            let l = ((by + dy) * bw + bx) as usize;
+            let r = ((by + dy) * bw + bx + box_w - 1) as usize;
+            if l < buf.len() {
+                buf[l] = border;
+            }
+            if r < buf.len() {
+                buf[r] = border;
+            }
+        }
+
+        for (i, line) in lines.iter().enumerate() {
+            let fg = if i == 0 {
+                color_u32(theme.foreground)
+            } else {
+                color_u32(theme.palette[8])
+            };
+            let ty = by + pad_y + i as u32 * line_h;
+            self.draw_str(buf, bw, bh, bx + pad_x, ty, line, fp, false, fg);
+        }
+    }
 }
 
 fn get_cell(grid: &Grid, scroll_offset: usize, row: usize, col: usize) -> &Cell {
@@ -1445,6 +1518,7 @@ fn mode_style(mode: &InputMode, theme: &ResolvedTheme) -> (&'static str, u32) {
         InputMode::RenameTab { .. } => ("RENAME", color_u32(theme.palette[3])),
         InputMode::Search { .. } => ("SEARCH", color_u32(theme.palette[3])),
         InputMode::CommandPalette { .. } => ("PALETTE", color_u32(theme.palette[6])),
+        InputMode::QuitSave => ("INSERT", color_u32(theme.palette[2])),
     }
 }
 
