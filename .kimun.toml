@@ -1,0 +1,17 @@
+# Subir fail_below tras cada phase completada
+[score]
+model      = "cogcom"
+fail_below = "F"          # baseline 2026-05-24: F (55.7)
+
+[smells]
+max_lines  = 50
+max_params = 5
+
+[dups]
+min_lines      = 8
+max_duplicates = 15
+max_dup_ratio  = 4.0
+
+[age]
+active_days = 60
+frozen_days = 180

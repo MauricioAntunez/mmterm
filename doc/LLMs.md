@@ -286,6 +286,33 @@ Adding a new theme-driven color: add the field to `ResolvedTheme`,
 add it to `ThemeFile` (optional), provide a palette-derived default in
 `resolve()`, add to all 9 bundled `.toml` files, update `draw()`.
 
+## Code Quality Gates (kimun)
+
+`km` (`cargo install --git https://github.com/lnds/kimun`) — static + git analysis.
+Config: `.kimun.toml` at repo root. Current score target: see `fail_below` there.
+
+Before every commit:
+```
+km score --trend origin/main --fail-if-worse
+```
+
+Before touching a file:
+```
+km hotspots    # high churn × complexity files
+km knowledge   # bus-factor risk (>80% single author)
+```
+
+In PR context:
+```
+km score diff main   # per-dimension delta; negative deltas need justification
+```
+
+Improvement phases (raise `fail_below` after each):
+- **Phase A** — `src/main.rs`: split `window_event()` and `redraw()`
+- **Phase B** — `src/renderer/text.rs`: split `draw_pane()`
+- **Phase C** — `src/terminal/parser.rs` + `src/input/keybindings.rs`: split `csi_dispatch()` and `handle_key_inner()`
+- **Phase D** — `src/app_state.rs`: split `dispatch_action()` (discovered hotspot, Cognitive 144)
+
 ## Critical Invariants
 
 - `renderer.font_px` is the config default reference, not the active size — always use `tab.metrics.font_px`

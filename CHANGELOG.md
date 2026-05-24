@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Documentation
+- add kimun code quality gates to workflow: `.kimun.toml` config and `doc/LLMs.md` section
+
 ### Performance
 - replace `scroll_up`/`scroll_down` double-loop clones with `rotate_left`/`rotate_right`; reduces cost per scroll line ~3.3× (49 µs → 15 µs for 220×50); `seq 1 100000` drops from 4.4 s to 1.4 s
 - drive a vsync-style render loop at ~60 fps while PTY data is flowing so output appears progressively instead of in large batches
