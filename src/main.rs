@@ -1110,6 +1110,389 @@ impl App {
         }
     }
 
+    // ── Keyboard / mouse event handlers ──────────────────────────────────────
+
+    fn handle_keyboard_input(
+        &mut self,
+        event: winit::event::KeyEvent,
+        event_loop: &ActiveEventLoop,
+    ) {
+        // Reset blink on every keypress so cursor is always visible after input.
+        self.state.cursor_blink = true;
+        self.state.blink_last = Instant::now();
+
+        if self.state.quit_pending {
+            let confirmed = matches!(
+                event.logical_key,
+                Key::Character(ref s) if s.eq_ignore_ascii_case("y")
+            );
+            self.state.quit_pending = false;
+            if confirmed {
+                event_loop.exit();
+            } else if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+            return;
+        }
+
+        if self.state.config_panel.is_some() {
+            self.handle_config_key(&event);
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+            return;
+        }
+
+        if matches!(self.state.mode, InputMode::RenameTab { .. }) {
+            self.handle_rename_key(&event);
+            return;
+        }
+
+        if matches!(self.state.mode, InputMode::Search { .. }) {
+            self.handle_search_key(&event);
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+            return;
+        }
+
+        if matches!(self.state.mode, InputMode::CommandPalette { .. }) {
+            self.handle_command_palette_key(&event, event_loop);
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+            return;
+        }
+
+        if self.state.ctrl_w_pending {
+            self.state.ctrl_w_pending = false;
+            let action = handle_ctrl_w(&event);
+            self.execute_action(action, event_loop);
+            return;
+        }
+
+        let (grid_cols, grid_rows, app_cursor) = {
+            let tab = self.tab();
+            tab.panes
+                .get(&tab.active)
+                .map(|e| {
+                    (
+                        e.pane.parser.grid.cols,
+                        e.pane.parser.grid.rows,
+                        e.pane.parser.grid.application_cursor_keys,
+                    )
+                })
+                .unwrap_or((80, 24, false))
+        };
+
+        let action = handle_key(
+            &event,
+            &self.modifiers,
+            &self.state.mode,
+            grid_cols,
+            grid_rows,
+            app_cursor,
+        );
+        self.execute_action(action, event_loop);
+    }
+
+    fn handle_cursor_moved(&mut self, px: f64, py: f64) {
+        self.state.mouse_pos = Some((px, py));
+
+        // Active separator drag takes full priority.
+        if let Some(handle) = self.state.drag_separator {
+            let new_pos = match handle.dir {
+                SplitDir::H => px as u32,
+                SplitDir::V => py as u32,
+            };
+            let ai = self.state.active_tab;
+            self.state.tabs[ai].layout.move_separator(handle, new_pos);
+            Self::sync_pane_sizes_tab(&mut self.state.tabs[ai]);
+            let icon = match handle.dir {
+                SplitDir::H => CursorIcon::ColResize,
+                SplitDir::V => CursorIcon::RowResize,
+            };
+            if let Some(w) = &self.window {
+                w.set_cursor(icon);
+                w.request_redraw();
+            }
+            return;
+        }
+
+        // Hover detection: show resize cursor near separators.
+        let hover_sep = {
+            let tab = &self.state.tabs[self.state.active_tab];
+            if !tab.zoomed {
+                tab.layout.separator_at_pixel(px as u32, py as u32, 4)
+            } else {
+                None
+            }
+        };
+
+        let url = self.url_at_pixel(px, py);
+        let icon = if let Some(h) = &hover_sep {
+            match h.dir {
+                SplitDir::H => CursorIcon::ColResize,
+                SplitDir::V => CursorIcon::RowResize,
+            }
+        } else if url.is_some() {
+            CursorIcon::Pointer
+        } else {
+            CursorIcon::Text
+        };
+        if let Some(w) = &self.window {
+            w.set_cursor(icon);
+        }
+        let url_changed = self.state.hovered_url != url;
+        self.state.hovered_url = url;
+        if url_changed && let Some(w) = &self.window {
+            w.request_redraw();
+        }
+        let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
+        if mouse_mode >= 1002 {
+            // Button-motion or any-motion: report if button is held or always.
+            let report = mouse_mode >= 1003 || self.state.mouse_selecting;
+            if report {
+                let active = self.tab().active;
+                if let Some((col, row)) = self.pixel_to_cell(active, px, py) {
+                    let btn = if self.state.mouse_selecting { 32 } else { 35 };
+                    self.send_mouse_event(btn, col, row, false, mouse_sgr);
+                }
+            }
+        } else if self.state.mouse_selecting {
+            self.update_mouse_selection(px, py);
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        }
+    }
+
+    fn handle_mouse_input(&mut self, state: ElementState, button: MouseButton) {
+        // End an active separator drag before any other handling.
+        if button == MouseButton::Left
+            && state == ElementState::Released
+            && self.state.drag_separator.take().is_some()
+        {
+            return;
+        }
+
+        // Separator click takes priority over PTY mouse and text selection.
+        if button == MouseButton::Left
+            && state == ElementState::Pressed
+            && let Some((mx, my)) = self.state.mouse_pos
+        {
+            let sep = {
+                let tab = &self.state.tabs[self.state.active_tab];
+                if !tab.zoomed {
+                    tab.layout.separator_at_pixel(mx as u32, my as u32, 4)
+                } else {
+                    None
+                }
+            };
+            if let Some(handle) = sep {
+                self.state.drag_separator = Some(handle);
+                return;
+            }
+        }
+
+        let btn_code = match button {
+            MouseButton::Left => 0u8,
+            MouseButton::Middle => 1u8,
+            MouseButton::Right => 2u8,
+            _ => 3u8,
+        };
+        let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
+        if mouse_mode >= 1000 && btn_code < 3 {
+            // Forward event to PTY.
+            if let Some((px, py)) = self.state.mouse_pos {
+                let active = self.tab().active;
+                if let Some((col, row)) = self.pixel_to_cell(active, px, py) {
+                    let release = state == ElementState::Released;
+                    self.send_mouse_event(btn_code, col, row, release, mouse_sgr);
+                }
+            }
+            // Track left-button held state so motion reporting knows.
+            if button == MouseButton::Left {
+                self.state.mouse_selecting = state == ElementState::Pressed;
+            }
+            return;
+        }
+
+        if button == MouseButton::Left {
+            match state {
+                ElementState::Pressed => {
+                    if let Some((mx, my)) = self.state.mouse_pos {
+                        self.start_mouse_selection(mx, my);
+                    }
+                }
+                ElementState::Released => {
+                    if self.state.mouse_selecting {
+                        self.state.mouse_selecting = false;
+                        self.finish_mouse_selection();
+                    }
+                }
+            }
+        } else if button == MouseButton::Middle && state == ElementState::Pressed {
+            // Middle-click paste.
+            let text = self
+                .state
+                .clipboard
+                .as_mut()
+                .and_then(|cb| cb.get_text().ok())
+                .or_else(|| Clipboard::new().ok()?.get_text().ok());
+            if let Some(text) = text {
+                let active = self.tab().active;
+                if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+                    let mut data = b"\x1b[200~".to_vec();
+                    data.extend_from_slice(text.as_bytes());
+                    data.extend_from_slice(b"\x1b[201~");
+                    let _ = entry.pty.write_input(&data);
+                }
+            }
+        }
+    }
+
+    fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
+        let lines = match delta {
+            MouseScrollDelta::LineDelta(_, y) => y,
+            MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as f32,
+        };
+        let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
+        if mouse_mode >= 1000 {
+            // btn 64 = scroll up, 65 = scroll down.
+            let steps = lines.abs().ceil() as usize;
+            let btn = if lines > 0.0 { 64u8 } else { 65u8 };
+            if let Some((px, py)) = self.state.mouse_pos {
+                let active = self.tab().active;
+                if let Some((col, row)) = self.pixel_to_cell(active, px, py) {
+                    for _ in 0..steps.max(1) {
+                        self.send_mouse_event(btn, col, row, false, mouse_sgr);
+                    }
+                }
+            }
+        } else if lines > 0.0 {
+            let n = lines.ceil() as usize;
+            let active = self.tab().active;
+            if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+                entry.pane.scroll_up(n);
+            }
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        } else {
+            let n = (-lines).ceil() as usize;
+            let active = self.tab().active;
+            if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+                entry.pane.scroll_down(n);
+            }
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        }
+    }
+
+    // ── Render helpers ────────────────────────────────────────────────────────
+
+    fn collect_pane_views<'a>(state: &'a AppState, w: u32, h: u32) -> Vec<PaneView<'a>> {
+        let tab = &state.tabs[state.active_tab];
+        let active_id = tab.active;
+        let has_search = !state.search_matches.is_empty();
+        let search_matches = &state.search_matches;
+        let search_current_val = state.search_current;
+
+        if tab.zoomed {
+            if let Some(entry) = tab.panes.get(&active_id) {
+                // Honour only our own modal cursor state; TUI apps often hide the PTY
+                // cursor (?25l) and don't restore it, but we always show it in Insert mode.
+                let show_cursor = tabs::should_show_cursor(
+                    true,
+                    matches!(state.mode, InputMode::Insert),
+                    state.cursor_blink,
+                    entry.pane.scroll_offset,
+                );
+                let (sm, sc) = if has_search {
+                    (search_matches.as_slice(), Some(search_current_val))
+                } else {
+                    (&[][..], None)
+                };
+                vec![PaneView {
+                    grid: &entry.pane.parser.grid,
+                    rect: [0, TAB_BAR_H, w, h.saturating_sub(TAB_BAR_H + STATUS_BAR_H)],
+                    scroll_offset: entry.pane.scroll_offset,
+                    is_active: true,
+                    show_cursor,
+                    blink_visible: state.cursor_blink,
+                    search_matches: sm,
+                    search_current: sc,
+                    hovered_url: state.hovered_url.as_deref(),
+                    cursor_shape: entry.pane.parser.grid.cursor_shape,
+                }]
+            } else {
+                vec![]
+            }
+        } else {
+            let rects = tab.layout.rects();
+            rects
+                .iter()
+                .filter_map(|(id, rect)| {
+                    let entry = tab.panes.get(id)?;
+                    let is_active = *id == active_id;
+                    let show_cursor = tabs::should_show_cursor(
+                        is_active,
+                        matches!(state.mode, InputMode::Insert),
+                        state.cursor_blink,
+                        entry.pane.scroll_offset,
+                    );
+                    let (sm, sc) = if is_active && has_search {
+                        (search_matches.as_slice(), Some(search_current_val))
+                    } else {
+                        (&[][..], None)
+                    };
+                    Some(PaneView {
+                        grid: &entry.pane.parser.grid,
+                        rect: *rect,
+                        scroll_offset: entry.pane.scroll_offset,
+                        is_active,
+                        show_cursor,
+                        blink_visible: state.cursor_blink,
+                        search_matches: sm,
+                        search_current: sc,
+                        hovered_url: state.hovered_url.as_deref(),
+                        cursor_shape: entry.pane.parser.grid.cursor_shape,
+                    })
+                })
+                .collect()
+        }
+    }
+
+    fn build_tab_titles(state: &AppState) -> Vec<(String, bool, bool)> {
+        state
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(i, tab)| {
+                let is_active = i == state.active_tab;
+                let osc_title = tab
+                    .panes
+                    .get(&tab.active)
+                    .and_then(|e| e.pane.parser.grid.osc_title.as_deref())
+                    .filter(|t| !t.starts_with('/') && !t.starts_with('~'));
+                let rename_buf = if is_active {
+                    if let InputMode::RenameTab { buf } = &state.mode {
+                        Some(buf.as_str())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let label =
+                    tabs::tab_label(i, tab.name.as_deref(), osc_title, is_active, rename_buf);
+                (label, is_active, tab.has_activity)
+            })
+            .collect()
+    }
+
     // ── Render ────────────────────────────────────────────────────────────────
 
     fn redraw(&mut self) {
@@ -1147,109 +1530,13 @@ impl App {
 
         self.state.tabs[self.state.active_tab].has_activity = false;
 
-        let tab = &self.state.tabs[self.state.active_tab];
-        let rects = tab.layout.rects();
-        let separators = tab.layout.separators();
-
-        let active_id = tab.active;
-        let zoomed = tab.zoomed;
-        let has_search = !self.state.search_matches.is_empty();
-        let search_matches = &self.state.search_matches;
-        let search_current_val = self.state.search_current;
-
-        let views: Vec<PaneView> = if zoomed {
-            let entry = tab.panes.get(&active_id);
-            if let Some(entry) = entry {
-                // cursor_visible is ignored in Insert mode: Ink and other TUI
-                // frameworks hide the terminal cursor (?25l) during rendering
-                // and sometimes do not restore it, leaving the cursor permanently
-                // hidden. In mmterm's Insert mode the user always needs to see
-                // the cursor, so we honour only our own modal state here.
-                let show_cursor = tabs::should_show_cursor(
-                    true,
-                    matches!(self.state.mode, InputMode::Insert),
-                    self.state.cursor_blink,
-                    entry.pane.scroll_offset,
-                );
-                let (sm, sc) = if has_search {
-                    (search_matches.as_slice(), Some(search_current_val))
-                } else {
-                    (&[][..], None)
-                };
-                vec![PaneView {
-                    grid: &entry.pane.parser.grid,
-                    rect: [0, TAB_BAR_H, w, h.saturating_sub(TAB_BAR_H + STATUS_BAR_H)],
-                    scroll_offset: entry.pane.scroll_offset,
-                    is_active: true,
-                    show_cursor,
-                    blink_visible: self.state.cursor_blink,
-                    search_matches: sm,
-                    search_current: sc,
-                    hovered_url: self.state.hovered_url.as_deref(),
-                    cursor_shape: entry.pane.parser.grid.cursor_shape,
-                }]
-            } else {
-                vec![]
-            }
-        } else {
-            rects
-                .iter()
-                .filter_map(|(id, rect)| {
-                    let entry = tab.panes.get(id)?;
-                    let is_active = *id == active_id;
-                    let show_cursor = tabs::should_show_cursor(
-                        is_active,
-                        matches!(self.state.mode, InputMode::Insert),
-                        self.state.cursor_blink,
-                        entry.pane.scroll_offset,
-                    );
-                    let (sm, sc) = if is_active && has_search {
-                        (search_matches.as_slice(), Some(search_current_val))
-                    } else {
-                        (&[][..], None)
-                    };
-                    Some(PaneView {
-                        grid: &entry.pane.parser.grid,
-                        rect: *rect,
-                        scroll_offset: entry.pane.scroll_offset,
-                        is_active,
-                        show_cursor,
-                        blink_visible: self.state.cursor_blink,
-                        search_matches: sm,
-                        search_current: sc,
-                        hovered_url: self.state.hovered_url.as_deref(),
-                        cursor_shape: entry.pane.parser.grid.cursor_shape,
-                    })
-                })
-                .collect()
+        let (separators, zoomed, active_id) = {
+            let tab = &self.state.tabs[self.state.active_tab];
+            (tab.layout.separators(), tab.zoomed, tab.active)
         };
 
-        let tab_titles: Vec<(String, bool, bool)> = self
-            .state
-            .tabs
-            .iter()
-            .enumerate()
-            .map(|(i, tab)| {
-                let is_active = i == self.state.active_tab;
-                let osc_title = tab
-                    .panes
-                    .get(&tab.active)
-                    .and_then(|e| e.pane.parser.grid.osc_title.as_deref())
-                    .filter(|t| !t.starts_with('/') && !t.starts_with('~'));
-                let rename_buf = if is_active {
-                    if let InputMode::RenameTab { buf } = &self.state.mode {
-                        Some(buf.as_str())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                let label =
-                    tabs::tab_label(i, tab.name.as_deref(), osc_title, is_active, rename_buf);
-                (label, is_active, tab.has_activity)
-            })
-            .collect();
+        let views = Self::collect_pane_views(&self.state, w, h);
+        let tab_titles = Self::build_tab_titles(&self.state);
 
         let metrics = self.state.tabs[self.state.active_tab].metrics.clone();
         let draw_separators: &[[u32; 4]] = if zoomed { &[] } else { &separators };
@@ -1406,7 +1693,6 @@ impl ApplicationHandler for App {
                 if event.state != ElementState::Pressed {
                     return;
                 }
-
                 // Swallow the first Tab that arrives after regaining focus —
                 // it is the Tab from the Alt+Tab that transferred focus to us.
                 if self.state.swallow_next_tab {
@@ -1415,283 +1701,19 @@ impl ApplicationHandler for App {
                         return;
                     }
                 }
-
-                // Reset blink on every keypress so cursor is always visible after input.
-                self.state.cursor_blink = true;
-                self.state.blink_last = Instant::now();
-
-                if self.state.quit_pending {
-                    let confirmed = matches!(
-                        event.logical_key,
-                        Key::Character(ref s) if s.eq_ignore_ascii_case("y")
-                    );
-                    self.state.quit_pending = false;
-                    if confirmed {
-                        event_loop.exit();
-                    } else if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                    return;
-                }
-
-                if self.state.config_panel.is_some() {
-                    self.handle_config_key(&event);
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                    return;
-                }
-
-                if matches!(self.state.mode, InputMode::RenameTab { .. }) {
-                    self.handle_rename_key(&event);
-                    return;
-                }
-
-                if matches!(self.state.mode, InputMode::Search { .. }) {
-                    self.handle_search_key(&event);
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                    return;
-                }
-
-                if matches!(self.state.mode, InputMode::CommandPalette { .. }) {
-                    self.handle_command_palette_key(&event, event_loop);
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                    return;
-                }
-
-                if self.state.ctrl_w_pending {
-                    self.state.ctrl_w_pending = false;
-                    let action = handle_ctrl_w(&event);
-                    self.execute_action(action, event_loop);
-                    return;
-                }
-
-                let (grid_cols, grid_rows, app_cursor) = {
-                    let tab = self.tab();
-                    tab.panes
-                        .get(&tab.active)
-                        .map(|e| {
-                            (
-                                e.pane.parser.grid.cols,
-                                e.pane.parser.grid.rows,
-                                e.pane.parser.grid.application_cursor_keys,
-                            )
-                        })
-                        .unwrap_or((80, 24, false))
-                };
-
-                let action = handle_key(
-                    &event,
-                    &self.modifiers,
-                    &self.state.mode,
-                    grid_cols,
-                    grid_rows,
-                    app_cursor,
-                );
-                self.execute_action(action, event_loop);
+                self.handle_keyboard_input(event, event_loop);
             }
 
             WindowEvent::CursorMoved { position, .. } => {
-                let (px, py) = (position.x, position.y);
-                self.state.mouse_pos = Some((px, py));
-
-                // Active separator drag takes full priority
-                if let Some(handle) = self.state.drag_separator {
-                    let new_pos = match handle.dir {
-                        SplitDir::H => px as u32,
-                        SplitDir::V => py as u32,
-                    };
-                    let ai = self.state.active_tab;
-                    self.state.tabs[ai].layout.move_separator(handle, new_pos);
-                    Self::sync_pane_sizes_tab(&mut self.state.tabs[ai]);
-                    let icon = match handle.dir {
-                        SplitDir::H => CursorIcon::ColResize,
-                        SplitDir::V => CursorIcon::RowResize,
-                    };
-                    if let Some(w) = &self.window {
-                        w.set_cursor(icon);
-                        w.request_redraw();
-                    }
-                    return;
-                }
-
-                // Hover detection: show resize cursor near separators
-                let hover_sep = {
-                    let tab = &self.state.tabs[self.state.active_tab];
-                    if !tab.zoomed {
-                        tab.layout.separator_at_pixel(px as u32, py as u32, 4)
-                    } else {
-                        None
-                    }
-                };
-
-                let url = self.url_at_pixel(px, py);
-                let icon = if let Some(h) = &hover_sep {
-                    match h.dir {
-                        SplitDir::H => CursorIcon::ColResize,
-                        SplitDir::V => CursorIcon::RowResize,
-                    }
-                } else if url.is_some() {
-                    CursorIcon::Pointer
-                } else {
-                    CursorIcon::Text
-                };
-                if let Some(w) = &self.window {
-                    w.set_cursor(icon);
-                }
-                let url_changed = self.state.hovered_url != url;
-                self.state.hovered_url = url;
-                if url_changed && let Some(w) = &self.window {
-                    w.request_redraw();
-                }
-                let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
-                if mouse_mode >= 1002 {
-                    // Button-motion or any-motion: report if button is held (selecting) or always
-                    let report = mouse_mode >= 1003 || self.state.mouse_selecting;
-                    if report {
-                        let active = self.tab().active;
-                        if let Some((col, row)) = self.pixel_to_cell(active, px, py) {
-                            // btn 32 = motion with no button, 32 = left held already encoded as 32
-                            let btn = if self.state.mouse_selecting { 32 } else { 35 };
-                            self.send_mouse_event(btn, col, row, false, mouse_sgr);
-                        }
-                    }
-                } else if self.state.mouse_selecting {
-                    self.update_mouse_selection(px, py);
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                }
+                self.handle_cursor_moved(position.x, position.y);
             }
 
             WindowEvent::MouseInput { state, button, .. } => {
-                // End an active separator drag before any other handling
-                if button == MouseButton::Left
-                    && state == ElementState::Released
-                    && self.state.drag_separator.take().is_some()
-                {
-                    return;
-                }
-
-                // Separator click takes priority over PTY mouse and text selection
-                if button == MouseButton::Left
-                    && state == ElementState::Pressed
-                    && let Some((mx, my)) = self.state.mouse_pos
-                {
-                    let sep = {
-                        let tab = &self.state.tabs[self.state.active_tab];
-                        if !tab.zoomed {
-                            tab.layout.separator_at_pixel(mx as u32, my as u32, 4)
-                        } else {
-                            None
-                        }
-                    };
-                    if let Some(handle) = sep {
-                        self.state.drag_separator = Some(handle);
-                        return;
-                    }
-                }
-
-                let btn_code = match button {
-                    MouseButton::Left => 0u8,
-                    MouseButton::Middle => 1u8,
-                    MouseButton::Right => 2u8,
-                    _ => 3u8,
-                };
-                let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
-                if mouse_mode >= 1000 && btn_code < 3 {
-                    // Forward event to PTY
-                    if let Some((px, py)) = self.state.mouse_pos {
-                        let active = self.tab().active;
-                        if let Some((col, row)) = self.pixel_to_cell(active, px, py) {
-                            let release = state == ElementState::Released;
-                            self.send_mouse_event(btn_code, col, row, release, mouse_sgr);
-                        }
-                    }
-                    // Track left-button held state so motion reporting knows
-                    if button == MouseButton::Left {
-                        self.state.mouse_selecting = state == ElementState::Pressed;
-                    }
-                    return;
-                }
-
-                if button == MouseButton::Left {
-                    match state {
-                        ElementState::Pressed => {
-                            if let Some((mx, my)) = self.state.mouse_pos {
-                                self.start_mouse_selection(mx, my);
-                            }
-                        }
-                        ElementState::Released => {
-                            if self.state.mouse_selecting {
-                                self.state.mouse_selecting = false;
-                                self.finish_mouse_selection();
-                            }
-                        }
-                    }
-                } else if button == MouseButton::Middle {
-                    // Middle-click paste
-                    if state == ElementState::Pressed {
-                        let text = self
-                            .state
-                            .clipboard
-                            .as_mut()
-                            .and_then(|cb| cb.get_text().ok())
-                            .or_else(|| Clipboard::new().ok()?.get_text().ok());
-                        if let Some(text) = text {
-                            let active = self.tab().active;
-                            if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
-                                let mut data = b"\x1b[200~".to_vec();
-                                data.extend_from_slice(text.as_bytes());
-                                data.extend_from_slice(b"\x1b[201~");
-                                let _ = entry.pty.write_input(&data);
-                            }
-                        }
-                    }
-                }
+                self.handle_mouse_input(state, button);
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
-                let lines = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => y,
-                    MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as f32,
-                };
-                let (mouse_mode, mouse_sgr) = self.active_mouse_mode();
-                if mouse_mode >= 1000 {
-                    // btn 64 = scroll up, 65 = scroll down
-                    let steps = lines.abs().ceil() as usize;
-                    let btn = if lines > 0.0 { 64u8 } else { 65u8 };
-                    if let Some((px, py)) = self.state.mouse_pos {
-                        let active = self.tab().active;
-                        if let Some((col, row)) = self.pixel_to_cell(active, px, py) {
-                            for _ in 0..steps.max(1) {
-                                self.send_mouse_event(btn, col, row, false, mouse_sgr);
-                            }
-                        }
-                    }
-                } else if lines > 0.0 {
-                    let n = lines.ceil() as usize;
-                    let active = self.tab().active;
-                    if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
-                        entry.pane.scroll_up(n);
-                    }
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                } else {
-                    let n = (-lines).ceil() as usize;
-                    let active = self.tab().active;
-                    if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
-                        entry.pane.scroll_down(n);
-                    }
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                }
+                self.handle_mouse_wheel(delta);
             }
 
             WindowEvent::RedrawRequested => {
