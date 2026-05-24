@@ -242,7 +242,12 @@ impl AppState {
         let Some(entry) = self.active_entry() else {
             return;
         };
-        let (nc, nr) = motion(&entry.pane.parser.grid, entry.pane.scroll_offset, cur_col, cur_row);
+        let (nc, nr) = motion(
+            &entry.pane.parser.grid,
+            entry.pane.scroll_offset,
+            cur_col,
+            cur_row,
+        );
         self.mode = InputMode::Visual {
             start_col,
             start_row,

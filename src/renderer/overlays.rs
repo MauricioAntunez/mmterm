@@ -1,0 +1,487 @@
+use crate::theme::ResolvedTheme;
+use crate::tui_config::ConfigPanel;
+
+use super::text::{
+    Renderer, STATUS_BAR_H, blend, color_u32, dim_buffer, draw_rect_border, fill_rect,
+};
+
+impl Renderer {
+    pub fn draw_config_panel(&mut self, buf: &mut [u32], bw: u32, bh: u32, panel: &ConfigPanel) {
+        dim_buffer(buf);
+
+        let fp = self.status_font_px;
+        let cw = self.glyphs.rasterize('M', fp, false).1;
+        let row_h = (fp * 1.6) as u32 + 4;
+        let section_h = row_h - 2;
+        let pad = cw;
+
+        let panel_w = (bw as f32 * 0.65) as u32;
+        // Fixed panel height: title + footer + visible rows (fit inside window)
+        let footer_rows = 2u32; // hint + status
+        let max_visible =
+            ((bh.saturating_sub(STATUS_BAR_H + row_h * 2 + row_h * footer_rows)) / row_h).max(4);
+        let panel_h = row_h * (max_visible + 2 + footer_rows);
+        let px = (bw - panel_w) / 2;
+        let py = (bh.saturating_sub(panel_h)) / 2;
+
+        let bg = 0xff_1a_1b_26_u32;
+        let border = 0xff_89_b4_fa_u32;
+
+        fill_rect(buf, bw, px, py, panel_w, panel_h, bg);
+        draw_rect_border(buf, bw, px, py, panel_w, panel_h, border);
+
+        // Title bar
+        self.draw_str(
+            buf,
+            bw,
+            bh,
+            px + pad,
+            py + 4,
+            "CONFIGURATION",
+            fp,
+            true,
+            0xff_cb_a6_f7,
+        );
+        // scroll indicator
+        let total = panel.fields.len();
+        let scroll_info = format!("{}/{}", panel.selected + 1, total);
+        let si_x = px + panel_w - cw * scroll_info.len() as u32 - pad;
+        self.draw_str(
+            buf,
+            bw,
+            bh,
+            si_x,
+            py + 4,
+            &scroll_info,
+            fp,
+            false,
+            0xff_58_5b_70,
+        );
+
+        // Scroll window: keep selected in view
+        let sel = panel.selected;
+        let scroll_start = if sel >= max_visible as usize {
+            sel + 1 - max_visible as usize
+        } else {
+            0
+        };
+
+        let content_y = py + row_h * 2;
+        let mut draw_y = content_y;
+
+        for (i, field) in panel.fields.iter().enumerate().skip(scroll_start) {
+            if draw_y + row_h > py + panel_h - row_h * footer_rows {
+                break;
+            }
+
+            // Section header
+            if let Some(sec) = field.section {
+                // separator line
+                for dx in 1..panel_w - 1 {
+                    let idx = (draw_y * bw + px + dx) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = 0xff_24_25_3a;
+                    }
+                }
+                let sec_label = format!("── {} ", sec);
+                self.draw_str(
+                    buf,
+                    bw,
+                    bh,
+                    px + pad,
+                    draw_y + 1,
+                    &sec_label,
+                    fp,
+                    true,
+                    0xff_58_5b_70,
+                );
+                draw_y += section_h;
+                if draw_y + row_h > py + panel_h - row_h * footer_rows {
+                    break;
+                }
+            }
+
+            let is_sel = i == sel;
+            let is_editing = panel.editing && is_sel;
+
+            // Row background
+            let row_bg = if is_sel { 0xff_2a_2b_3d } else { bg };
+            for dx in 1..panel_w - 1 {
+                for dy in 0..row_h {
+                    let idx = ((draw_y + dy) * bw + px + dx) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = row_bg;
+                    }
+                }
+            }
+            if is_sel {
+                // left accent bar
+                for dy in 0..row_h {
+                    let idx = ((draw_y + dy) * bw + px + 1) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = border;
+                    }
+                }
+            }
+
+            // Color swatch for hex fields
+            if matches!(field.kind, crate::tui_config::FieldKind::HexColor) {
+                let hex = panel.display_value(i);
+                if let Ok(n) = u32::from_str_radix(hex.trim_start_matches('#'), 16) {
+                    let swatch_color = 0xff_00_00_00 | n;
+                    for dy in 2..row_h - 2 {
+                        for dx in 0..8 {
+                            let sx = px + panel_w - pad - 10 + dx;
+                            let sy = draw_y + dy;
+                            let idx = (sy * bw + sx) as usize;
+                            if idx < buf.len() {
+                                buf[idx] = swatch_color;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let label_color = if is_sel { 0xff_f9_e2_af } else { 0xff_ba_c2_de };
+            let is_select = matches!(field.kind, crate::tui_config::FieldKind::Select(_));
+            let cursor_str = if is_editing { "_" } else { "" };
+            let value_display = if is_select && is_sel {
+                format!("\u{2190} {} \u{2192}", panel.display_value(i))
+            } else {
+                format!("{}{}", panel.display_value(i), cursor_str)
+            };
+            let text = format!("{:<18} {}", field.label, value_display);
+            self.draw_str(
+                buf,
+                bw,
+                bh,
+                px + pad + 4,
+                draw_y + 2,
+                &text,
+                fp,
+                false,
+                label_color,
+            );
+
+            if is_editing {
+                let ex = px + panel_w - cw * 7 - pad;
+                self.draw_str(
+                    buf,
+                    bw,
+                    bh,
+                    ex,
+                    draw_y + 2,
+                    "[editing]",
+                    fp,
+                    false,
+                    0xff_a6_e3_a1,
+                );
+            }
+
+            draw_y += row_h;
+        }
+
+        // Footer: hint + status/help
+        let footer_y = py + panel_h - row_h * footer_rows;
+        // divider
+        for dx in 1..panel_w - 1 {
+            let idx = (footer_y * bw + px + dx) as usize;
+            if idx < buf.len() {
+                buf[idx] = 0xff_31_32_44;
+            }
+        }
+
+        let hint = format!("hint: {}", panel.fields[panel.selected].hint);
+        self.draw_str(
+            buf,
+            bw,
+            bh,
+            px + pad,
+            footer_y + 2,
+            &hint,
+            fp,
+            false,
+            0xff_58_5b_70,
+        );
+
+        let status_y = py + panel_h - row_h;
+        let status = panel
+            .status
+            .as_deref()
+            .unwrap_or("j/k: move  Enter/i: edit  Ctrl+S: save  q/Esc: cancel");
+        let status_color = if panel.status.is_some() {
+            0xff_f3_8b_a8
+        } else {
+            0xff_58_5b_70
+        };
+        self.draw_str(
+            buf,
+            bw,
+            bh,
+            px + pad,
+            status_y,
+            status,
+            fp,
+            false,
+            status_color,
+        );
+    }
+
+    /// `entries` is a slice of `(label, shortcut)` pairs — e.g. `("Split Vertical", "Ctrl+W s")`.
+    pub fn draw_command_palette(
+        &mut self,
+        buf: &mut [u32],
+        bw: u32,
+        bh: u32,
+        query: &str,
+        entries: &[(&str, &str)],
+        selected: usize,
+    ) {
+        dim_buffer(buf);
+
+        let fp = self.status_font_px;
+        let cw = self.glyphs.rasterize('M', fp, false).1;
+        let row_h = (fp * 1.6) as u32 + 4;
+
+        const MAX_VISIBLE: usize = 10;
+        let visible = entries.len().min(MAX_VISIBLE);
+        let panel_h = row_h * (1 + visible as u32 + 1);
+        let panel_w = (bw as f32 * 0.62) as u32;
+        let px = (bw - panel_w) / 2;
+        let py = bh / 4;
+
+        let bg = 0xff_1a_1b_26_u32;
+        let border = 0xff_89_b4_fa_u32;
+        let pad = cw;
+
+        fill_rect(buf, bw, px, py, panel_w, panel_h, bg);
+        draw_rect_border(buf, bw, px, py, panel_w, panel_h, border);
+
+        // Query input row
+        let query_display = format!("> {query}_");
+        self.draw_str(
+            buf,
+            bw,
+            bh,
+            px + pad,
+            py + 4,
+            &query_display,
+            fp,
+            false,
+            0xff_cb_d5_f5,
+        );
+
+        // Entry count indicator
+        let count_str = format!("{}/{}", entries.len(), crate::command_palette::total());
+        let count_x = px + panel_w - cw * count_str.len() as u32 - pad;
+        self.draw_str(
+            buf,
+            bw,
+            bh,
+            count_x,
+            py + 4,
+            &count_str,
+            fp,
+            false,
+            0xff_58_5b_70,
+        );
+
+        // Separator line under query row
+        let sep_y = py + row_h;
+        for dx in 1..panel_w - 1 {
+            let idx = (sep_y * bw + px + dx) as usize;
+            if idx < buf.len() {
+                buf[idx] = 0xff_24_25_3a;
+            }
+        }
+
+        // Scroll window: keep selected visible
+        let scroll_start = if selected >= MAX_VISIBLE {
+            selected + 1 - MAX_VISIBLE
+        } else {
+            0
+        };
+
+        let content_y = py + row_h + 1;
+        for (list_i, &(label, code)) in entries.iter().enumerate().skip(scroll_start) {
+            if list_i - scroll_start >= MAX_VISIBLE {
+                break;
+            }
+            let row_y = content_y + (list_i - scroll_start) as u32 * row_h;
+            let is_sel = list_i == selected;
+
+            let row_bg = if is_sel { 0xff_2a_2b_3d } else { bg };
+            for dx in 1..panel_w - 1 {
+                for dy in 0..row_h {
+                    let idx = ((row_y + dy) * bw + px + dx) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = row_bg;
+                    }
+                }
+            }
+            if is_sel {
+                for dy in 0..row_h {
+                    let idx = ((row_y + dy) * bw + px + 1) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = border;
+                    }
+                }
+            }
+
+            // Label (left, bold when selected)
+            let label_color = if is_sel { 0xff_f9_e2_af } else { 0xff_ba_c2_de };
+            self.draw_str(
+                buf,
+                bw,
+                bh,
+                px + pad + 4,
+                row_y + 2,
+                label,
+                fp,
+                is_sel,
+                label_color,
+            );
+
+            // Shortcut hint (right-aligned, dimmed)
+            let shortcut = code; // parameter name reused — holds the shortcut string
+            let shortcut_x = px + panel_w - cw * shortcut.len() as u32 - pad;
+            self.draw_str(
+                buf,
+                bw,
+                bh,
+                shortcut_x,
+                row_y + 2,
+                shortcut,
+                fp,
+                false,
+                0xff_58_5b_70,
+            );
+        }
+
+        // Footer hint
+        let footer_y = py + panel_h - row_h + 4;
+        self.draw_str(
+            buf,
+            bw,
+            bh,
+            px + pad,
+            footer_y,
+            "↑↓ navigate   Enter execute   Esc close",
+            fp,
+            false,
+            0xff_58_5b_70,
+        );
+    }
+
+    pub fn draw_quit_confirm(&mut self, buf: &mut [u32], bw: u32, bh: u32, theme: &ResolvedTheme) {
+        dim_buffer(buf);
+        let lines = ["Quit? All tabs will close.", "[y] Yes   [n / Esc] Cancel"];
+        let fg = [color_u32(theme.foreground), color_u32(theme.palette[8])];
+        self.draw_confirm_dialog(
+            buf,
+            bw,
+            bh,
+            &lines,
+            &fg,
+            color_u32(theme.background),
+            color_u32(theme.palette[1]),
+        );
+    }
+
+    pub fn draw_save_session_confirm(
+        &mut self,
+        buf: &mut [u32],
+        bw: u32,
+        bh: u32,
+        theme: &ResolvedTheme,
+    ) {
+        dim_buffer(buf);
+        let lines = [
+            "Save session before quitting?",
+            "[s] Save and quit   [q] Quit   [Esc] Cancel",
+        ];
+        let fg = [color_u32(theme.foreground), color_u32(theme.palette[8])];
+        self.draw_confirm_dialog(
+            buf,
+            bw,
+            bh,
+            &lines,
+            &fg,
+            color_u32(theme.background),
+            color_u32(theme.palette[3]),
+        );
+    }
+
+    /// Renders a string of glyphs blended onto a colored background.
+    /// Used for mode and REC badges in the status bar.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn draw_badge_label(
+        &mut self,
+        buf: &mut [u32],
+        bw: u32,
+        bh: u32,
+        mut x: u32,
+        y: u32,
+        badge_h: u32,
+        char_w: u32,
+        label: &str,
+        badge_color: u32,
+        fg: u32,
+        fp: f32,
+    ) {
+        let baseline = (badge_h as f32 * 0.82) as u32;
+        for c in label.chars() {
+            let (bitmap, gw, gh) = self.glyphs.rasterize(c, fp, true);
+            let cy = y + baseline.saturating_sub(gh);
+            for gy in 0..gh {
+                for gx in 0..gw {
+                    let alpha = bitmap[(gy * gw + gx) as usize];
+                    if alpha == 0 {
+                        continue;
+                    }
+                    let sx = x + gx;
+                    let sy = cy + gy;
+                    if sx >= bw || sy >= bh {
+                        continue;
+                    }
+                    let idx = (sy * bw + sx) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = blend(badge_color, fg, alpha);
+                    }
+                }
+            }
+            x += char_w;
+        }
+    }
+
+    /// Draws a centered dialog box with the given text lines over a dimmed background.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn draw_confirm_dialog(
+        &mut self,
+        buf: &mut [u32],
+        bw: u32,
+        bh: u32,
+        lines: &[&str],
+        fg_colors: &[u32],
+        bg: u32,
+        border: u32,
+    ) {
+        let fp = self.status_font_px;
+        let cw = self.glyphs.rasterize('M', fp, false).1;
+        let line_h = (fp * 1.8) as u32;
+        let pad_x = cw * 3;
+        let pad_y = line_h;
+        let max_chars = lines.iter().map(|l| l.len() as u32).max().unwrap_or(1);
+        let box_w = max_chars * cw + pad_x * 2;
+        let box_h = lines.len() as u32 * line_h + pad_y * 2;
+        let bx = bw.saturating_sub(box_w) / 2;
+        let by = bh.saturating_sub(box_h) / 2;
+        fill_rect(buf, bw, bx, by, box_w, box_h, bg);
+        draw_rect_border(buf, bw, bx, by, box_w, box_h, border);
+        for (i, line) in lines.iter().enumerate() {
+            let ty = by + pad_y + i as u32 * line_h;
+            let fg = fg_colors.get(i).copied().unwrap_or(0xFF_FF_FF_FF);
+            self.draw_str(buf, bw, bh, bx + pad_x, ty, line, fp, false, fg);
+        }
+    }
+}
