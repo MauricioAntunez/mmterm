@@ -174,6 +174,8 @@ pub struct Grid {
     // OSC 52 clipboard operations: text to write, or true = read request
     pub pending_clipboard_write: Option<String>,
     pub pending_clipboard_read: bool,
+    // DEC Special Graphics character set (ESC ( 0 = on, ESC ( B = off)
+    pub charset_drawing: bool,
 }
 
 impl Grid {
@@ -246,6 +248,7 @@ impl Grid {
             pending_responses: Vec::new(),
             pending_clipboard_write: None,
             pending_clipboard_read: false,
+            charset_drawing: false,
         }
     }
 
@@ -290,6 +293,7 @@ impl Grid {
         self.overline = false;
         self.reverse = false;
         self.blink = false;
+        self.charset_drawing = false;
     }
 
     pub fn exit_alternate_screen(&mut self) {
@@ -368,6 +372,11 @@ impl Grid {
         let wide = char_cols == 2;
         let url = self.current_url.clone();
 
+        let c = if self.charset_drawing {
+            dec_line_drawing(c)
+        } else {
+            c
+        };
         let cell = self.cell_mut(self.cursor_col, self.cursor_row);
         cell.c = c;
         cell.fg = fg;
@@ -664,6 +673,46 @@ fn url_span_at(chars: &[char], start: usize) -> Option<usize> {
         }
     }
     if len > prefix_len { Some(len) } else { None }
+}
+
+/// Map a character through the DEC Special Graphics character set (G0).
+/// Only the 32 printable chars in the 0x60–0x7e range are remapped;
+/// everything else passes through unchanged.
+fn dec_line_drawing(c: char) -> char {
+    match c {
+        '`' => '◆',  // diamond
+        'a' => '▒',  // checkerboard
+        'b' => '␉',  // HT
+        'c' => '␌',  // FF
+        'd' => '\r', // CR
+        'e' => '␊',  // LF
+        'f' => '°',  // degree
+        'g' => '±',  // plus-minus
+        'h' => '␤',  // NL
+        'i' => '␋',  // VT
+        'j' => '┘',
+        'k' => '┐',
+        'l' => '┌',
+        'm' => '└',
+        'n' => '┼',
+        'o' => '⎺', // scan line 1
+        'p' => '⎻', // scan line 3
+        'q' => '─',
+        'r' => '⎼', // scan line 7
+        's' => '⎽', // scan line 9
+        't' => '├',
+        'u' => '┤',
+        'v' => '┴',
+        'w' => '┬',
+        'x' => '│',
+        'y' => '≤',
+        'z' => '≥',
+        '{' => 'π',
+        '|' => '≠',
+        '}' => '£',
+        '~' => '·', // middle dot
+        _ => c,
+    }
 }
 
 #[cfg(test)]

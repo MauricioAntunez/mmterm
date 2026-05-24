@@ -79,6 +79,9 @@ vim-style modal input, split panes, and multi-tab sessions.
   SGR attributes (colors, bold, dim, underline, reverse, blink, strikethrough).
 - SGR italic (`\e[3m` / `\e[23m`): stored per-cell and rendered with an italic
   font variant; JetBrainsMono Italic and Bold Italic are bundled as fallback.
+- DEC Special Graphics character set (`ESC ( 0` / `ESC ( B`): maps `j`–`x` and
+  surrounding chars to Unicode box-drawing glyphs (`┘┐┌└┼─│├┤┴┬` etc.);
+  required by ncurses apps (`dialog`, `nmtui`, `mutt`, `alpine`).
 
 ### Rendering
 - CPU-only pixel buffer (no GPU, no OpenGL, no Vulkan).

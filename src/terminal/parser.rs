@@ -414,6 +414,9 @@ impl Perform for Performer<'_> {
     fn unhook(&mut self) {}
     fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {
         match (intermediates, byte) {
+            // DEC Special Graphics (line drawing): ESC ( 0 = on, ESC ( B = ASCII
+            (b"(", b'0') => self.grid.charset_drawing = true,
+            (b"(", b'B') => self.grid.charset_drawing = false,
             ([], b'M') => {
                 // Reverse index: move up, or scroll content down if at top of scroll region
                 if self.grid.cursor_row > self.grid.scroll_top {

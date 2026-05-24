@@ -971,3 +971,35 @@ fn osc52_write_with_st_terminator() {
     p.process(b"\x1b]52;c;aGVsbG8=\x1b\\");
     assert_eq!(p.grid.pending_clipboard_write.as_deref(), Some("hello"));
 }
+
+#[test]
+fn dec_line_drawing_box_chars() {
+    let mut p = make_parser(80, 24);
+    // ESC ( 0 activates DEC Special Graphics; l q k / x x / m q j draws a box
+    p.process(b"\x1b(0lqk\r\nmqj\x1b(B");
+    // row 0: ┌─┐
+    assert_eq!(p.grid.cell(0, 0).c, '┌');
+    assert_eq!(p.grid.cell(1, 0).c, '─');
+    assert_eq!(p.grid.cell(2, 0).c, '┐');
+    // row 1: └─┘
+    assert_eq!(p.grid.cell(0, 1).c, '└');
+    assert_eq!(p.grid.cell(1, 1).c, '─');
+    assert_eq!(p.grid.cell(2, 1).c, '┘');
+}
+
+#[test]
+fn dec_line_drawing_off_restores_ascii() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b(0q\x1b(Bq");
+    assert_eq!(p.grid.cell(0, 0).c, '─'); // in drawing mode
+    assert_eq!(p.grid.cell(1, 0).c, 'q'); // back to ASCII
+}
+
+#[test]
+fn dec_line_drawing_reset_on_alt_screen() {
+    let mut p = make_parser(80, 24);
+    p.process(b"\x1b(0"); // activate
+    assert!(p.grid.charset_drawing);
+    p.process(b"\x1b[?1049h"); // enter alt screen — should reset
+    assert!(!p.grid.charset_drawing);
+}
