@@ -363,6 +363,25 @@ impl Grid {
         &self.cells[row * self.cols + col]
     }
 
+    fn make_char_cell(&self, c: char, wide: bool) -> Cell {
+        Cell {
+            c,
+            fg: self.fg,
+            bg: self.bg,
+            bold: self.bold,
+            dim: self.dim,
+            italic: self.italic,
+            underline: self.underline,
+            strikethrough: self.strikethrough,
+            overline: self.overline,
+            reverse: self.reverse,
+            blink: self.blink,
+            wide,
+            wide_cont: false,
+            url: self.current_url.clone(),
+        }
+    }
+
     pub fn write_char(&mut self, c: char) {
         use unicode_width::UnicodeWidthChar;
         let char_cols = UnicodeWidthChar::width(c).unwrap_or(1).max(1);
@@ -376,39 +395,14 @@ impl Grid {
             }
         }
 
-        let fg = self.fg;
-        let bg = self.bg;
-        let bold = self.bold;
-        let dim = self.dim;
-        let italic = self.italic;
-        let underline = self.underline;
-        let strikethrough = self.strikethrough;
-        let overline = self.overline;
-        let reverse = self.reverse;
-        let blink = self.blink;
         let wide = char_cols == 2;
-        let url = self.current_url.clone();
-
         let c = if self.charset_drawing {
             dec_line_drawing(c)
         } else {
             c
         };
-        let cell = self.cell_mut(self.cursor_col, self.cursor_row);
-        cell.c = c;
-        cell.fg = fg;
-        cell.bg = bg;
-        cell.bold = bold;
-        cell.dim = dim;
-        cell.italic = italic;
-        cell.underline = underline;
-        cell.strikethrough = strikethrough;
-        cell.overline = overline;
-        cell.reverse = reverse;
-        cell.blink = blink;
-        cell.wide = wide;
-        cell.wide_cont = false;
-        cell.url = url;
+        let new_cell = self.make_char_cell(c, wide);
+        *self.cell_mut(self.cursor_col, self.cursor_row) = new_cell;
         self.cursor_col += 1;
 
         if wide && self.cursor_col < self.cols {
@@ -491,8 +485,6 @@ impl Grid {
         } else {
             (er, ec, sr, sc)
         };
-        let sb_len = self.scrollback.len();
-        let sb_start = sb_len.saturating_sub(scroll_offset);
         let mut result = String::new();
         for row in r0..=r1 {
             let col_start = if row == r0 { c0 } else { 0 };
@@ -503,32 +495,9 @@ impl Grid {
             };
             let mut line = String::new();
             for col in col_start..=col_end {
-                if col >= self.cols {
-                    continue;
+                if let Some(c) = self.cell_char_at(row, col, scroll_offset) {
+                    line.push(c);
                 }
-                let c = if scroll_offset > 0 {
-                    let abs_row = sb_start + row;
-                    if abs_row < sb_len {
-                        let sb_line = &self.scrollback[abs_row];
-                        if col < sb_line.len() {
-                            sb_line[col].c
-                        } else {
-                            ' '
-                        }
-                    } else {
-                        let live_row = abs_row.saturating_sub(sb_len);
-                        if live_row < self.rows {
-                            self.cell(col, live_row).c
-                        } else {
-                            continue;
-                        }
-                    }
-                } else if row < self.rows {
-                    self.cell(col, row).c
-                } else {
-                    continue;
-                };
-                line.push(c);
             }
             if !result.is_empty() {
                 result.push('\n');
@@ -536,6 +505,32 @@ impl Grid {
             result.push_str(line.trim_end_matches(' '));
         }
         result
+    }
+
+    fn cell_char_at(&self, row: usize, col: usize, scroll_offset: usize) -> Option<char> {
+        if col >= self.cols {
+            return None;
+        }
+        let sb_len = self.scrollback.len();
+        let sb_start = sb_len.saturating_sub(scroll_offset);
+        if scroll_offset > 0 {
+            let abs_row = sb_start + row;
+            if abs_row < sb_len {
+                let sb_line = &self.scrollback[abs_row];
+                Some(if col < sb_line.len() {
+                    sb_line[col].c
+                } else {
+                    ' '
+                })
+            } else {
+                let live_row = abs_row.saturating_sub(sb_len);
+                (live_row < self.rows).then(|| self.cell(col, live_row).c)
+            }
+        } else if row < self.rows {
+            Some(self.cell(col, row).c)
+        } else {
+            None
+        }
     }
 
     pub fn blank_cell(&self) -> Cell {

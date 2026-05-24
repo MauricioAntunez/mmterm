@@ -476,25 +476,7 @@ impl AppState {
             Action::Paste => vec![AppEffect::Paste],
 
             // ── Mode ─────────────────────────────────────────────────────────
-            Action::SetMode(new_mode) => {
-                self.mode = if let InputMode::Visual { .. } = &new_mode {
-                    if matches!(self.mode, InputMode::Visual { .. }) {
-                        new_mode
-                    } else {
-                        let (col, row) = self.visual_start_pos();
-                        InputMode::Visual {
-                            start_col: col,
-                            start_row: row,
-                            cur_col: col,
-                            cur_row: row,
-                            anchored: false,
-                        }
-                    }
-                } else {
-                    new_mode
-                };
-                vec![AppEffect::Redraw]
-            }
+            Action::SetMode(new_mode) => self.do_set_mode(new_mode),
 
             // ── Scroll ───────────────────────────────────────────────────────
             Action::ScrollUp(n) => {
@@ -525,16 +507,7 @@ impl AppState {
                 vec![AppEffect::Redraw]
             }
             Action::ClearScrollback => {
-                if let Some(e) = self.active_entry_mut() {
-                    e.pane.parser.grid.scrollback.clear();
-                    e.pane.parser.grid.clear_screen();
-                    e.pane.parser.grid.cursor_col = 0;
-                    e.pane.parser.grid.cursor_row = 0;
-                    e.pane.scroll_bottom();
-                }
-                if !self.tabs.is_empty() {
-                    self.search_matches.clear();
-                }
+                self.do_clear_scrollback();
                 vec![AppEffect::Redraw]
             }
 
@@ -609,12 +582,7 @@ impl AppState {
             }
             Action::CloseTab => vec![AppEffect::CloseTab],
             Action::RenameTab => {
-                let current = self
-                    .tabs
-                    .get(self.active_tab)
-                    .and_then(|t| t.name.clone())
-                    .unwrap_or_default();
-                self.mode = InputMode::RenameTab { buf: current };
+                self.do_rename_tab();
                 vec![AppEffect::Redraw]
             }
 
@@ -628,21 +596,11 @@ impl AppState {
                 vec![AppEffect::Redraw]
             }
             Action::SearchNext => {
-                if !self.search_matches.is_empty() {
-                    let next = (self.search_current + 1) % self.search_matches.len();
-                    self.scroll_to_match(next);
-                }
+                self.do_search_next();
                 vec![AppEffect::Redraw]
             }
             Action::SearchPrev => {
-                if !self.search_matches.is_empty() {
-                    let prev = if self.search_current == 0 {
-                        self.search_matches.len() - 1
-                    } else {
-                        self.search_current - 1
-                    };
-                    self.scroll_to_match(prev);
-                }
+                self.do_search_prev();
                 vec![AppEffect::Redraw]
             }
 
@@ -660,30 +618,22 @@ impl AppState {
             }
 
             // ── Pane resize ──────────────────────────────────────────────────
-            Action::ResizePaneRight => {
-                vec![AppEffect::ResizePane {
-                    split_h: true,
-                    delta: crate::ui::layout::NUDGE_STEP,
-                }]
-            }
-            Action::ResizePaneLeft => {
-                vec![AppEffect::ResizePane {
-                    split_h: true,
-                    delta: -crate::ui::layout::NUDGE_STEP,
-                }]
-            }
-            Action::ResizePaneDown => {
-                vec![AppEffect::ResizePane {
-                    split_h: false,
-                    delta: crate::ui::layout::NUDGE_STEP,
-                }]
-            }
-            Action::ResizePaneUp => {
-                vec![AppEffect::ResizePane {
-                    split_h: false,
-                    delta: -crate::ui::layout::NUDGE_STEP,
-                }]
-            }
+            Action::ResizePaneRight => vec![AppEffect::ResizePane {
+                split_h: true,
+                delta: crate::ui::layout::NUDGE_STEP,
+            }],
+            Action::ResizePaneLeft => vec![AppEffect::ResizePane {
+                split_h: true,
+                delta: -crate::ui::layout::NUDGE_STEP,
+            }],
+            Action::ResizePaneDown => vec![AppEffect::ResizePane {
+                split_h: false,
+                delta: crate::ui::layout::NUDGE_STEP,
+            }],
+            Action::ResizePaneUp => vec![AppEffect::ResizePane {
+                split_h: false,
+                delta: -crate::ui::layout::NUDGE_STEP,
+            }],
 
             // ── Logging ──────────────────────────────────────────────────────
             Action::ToggleLog => vec![AppEffect::ToggleLog],
@@ -708,23 +658,84 @@ impl AppState {
                 }
                 vec![AppEffect::Redraw]
             }
-            Action::Quit => {
-                if self.config.general.restore_session {
-                    self.mode = crate::input::InputMode::QuitSave;
-                    vec![AppEffect::Redraw]
-                } else {
-                    let total_panes = self.tabs.iter().map(|t| t.panes.len()).sum::<usize>();
-                    if crate::tabs::needs_quit_confirm(self.tabs.len(), total_panes) {
-                        self.quit_pending = true;
-                        vec![AppEffect::QuitPending]
-                    } else {
-                        vec![AppEffect::Quit]
-                    }
-                }
-            }
+            Action::Quit => self.do_quit(),
             Action::QuitSaveSession => vec![AppEffect::SaveSessionAndQuit],
             Action::QuitNoSave => vec![AppEffect::Quit],
             Action::None => vec![],
+        }
+    }
+
+    fn do_set_mode(&mut self, new_mode: InputMode) -> Vec<AppEffect> {
+        self.mode = if let InputMode::Visual { .. } = &new_mode {
+            if matches!(self.mode, InputMode::Visual { .. }) {
+                new_mode
+            } else {
+                let (col, row) = self.visual_start_pos();
+                InputMode::Visual {
+                    start_col: col,
+                    start_row: row,
+                    cur_col: col,
+                    cur_row: row,
+                    anchored: false,
+                }
+            }
+        } else {
+            new_mode
+        };
+        vec![AppEffect::Redraw]
+    }
+
+    fn do_clear_scrollback(&mut self) {
+        if let Some(e) = self.active_entry_mut() {
+            e.pane.parser.grid.scrollback.clear();
+            e.pane.parser.grid.clear_screen();
+            e.pane.parser.grid.cursor_col = 0;
+            e.pane.parser.grid.cursor_row = 0;
+            e.pane.scroll_bottom();
+        }
+        if !self.tabs.is_empty() {
+            self.search_matches.clear();
+        }
+    }
+
+    fn do_rename_tab(&mut self) {
+        let current = self
+            .tabs
+            .get(self.active_tab)
+            .and_then(|t| t.name.clone())
+            .unwrap_or_default();
+        self.mode = InputMode::RenameTab { buf: current };
+    }
+
+    fn do_search_next(&mut self) {
+        if !self.search_matches.is_empty() {
+            let next = (self.search_current + 1) % self.search_matches.len();
+            self.scroll_to_match(next);
+        }
+    }
+
+    fn do_search_prev(&mut self) {
+        if !self.search_matches.is_empty() {
+            let prev = if self.search_current == 0 {
+                self.search_matches.len() - 1
+            } else {
+                self.search_current - 1
+            };
+            self.scroll_to_match(prev);
+        }
+    }
+
+    fn do_quit(&mut self) -> Vec<AppEffect> {
+        if self.config.general.restore_session {
+            self.mode = crate::input::InputMode::QuitSave;
+            return vec![AppEffect::Redraw];
+        }
+        let total_panes = self.tabs.iter().map(|t| t.panes.len()).sum::<usize>();
+        if crate::tabs::needs_quit_confirm(self.tabs.len(), total_panes) {
+            self.quit_pending = true;
+            vec![AppEffect::QuitPending]
+        } else {
+            vec![AppEffect::Quit]
         }
     }
 

@@ -169,7 +169,6 @@ impl Renderer {
         dim_factor: f32,
         theme: &ResolvedTheme,
     ) {
-        let [rx, ry, rw, rh] = pane.rect;
         let grid = pane.grid;
 
         // Pre-fill gutter pixels so they match the pane background.
@@ -192,128 +191,19 @@ impl Renderer {
 
         let sb_len = grid.scrollback.len();
 
-        let mut row = 0usize;
-        while row < grid.rows {
-            // Absolute row in the combined scrollback+grid address space.
-            let abs_row = sb_len.saturating_sub(pane.scroll_offset) + row;
-            // Binary-search lower bound for this row's matches (sorted by abs_row).
-            let row_match_lo = pane
-                .search_matches
-                .partition_point(|&(r, _, _)| r < abs_row);
-
-            let mut col = 0usize;
-            while col < grid.cols {
-                let cell = get_cell(grid, pane.scroll_offset, row, col);
-
-                // Continuation cells are rendered as part of the preceding wide char.
-                if cell.wide_cont {
-                    col += 1;
-                    continue;
-                }
-
-                let cell_cols = if cell.wide { 2u32 } else { 1u32 };
-                let draw_w = cell_cols * m.cell_width;
-                let cell_x = rx + PANE_PADDING + col as u32 * m.cell_width;
-                let cell_y = ry + PANE_PADDING + row as u32 * m.cell_height;
-
-                if cell_x + draw_w > rx + rw.saturating_sub(PANE_PADDING)
-                    || cell_y + m.cell_height > ry + rh.saturating_sub(PANE_PADDING)
-                {
-                    col += cell_cols as usize;
-                    continue;
-                }
-
-                let is_cursor = match mode {
-                    InputMode::Visual {
-                        cur_col: vc,
-                        cur_row: vr,
-                        ..
-                    } if pane.is_active => col == *vc && row == *vr && pane.blink_visible,
-                    _ => pane.show_cursor && col == grid.cursor_col && row == grid.cursor_row,
-                };
-                let is_selected = selection_range.is_some_and(|(sc, sr, ec, er)| {
-                    let (r0, c0, r1, c1) = if (sr, sc) <= (er, ec) {
-                        (sr, sc, er, ec)
-                    } else {
-                        (er, ec, sr, sc)
-                    };
-                    (row > r0 || (row == r0 && col >= c0)) && (row < r1 || (row == r1 && col <= c1))
-                });
-
-                let (in_match, is_current_match) = search_highlight(
-                    pane.search_matches,
-                    pane.search_current,
-                    abs_row,
-                    col,
-                    row_match_lo,
-                );
-
-                // Background stays at full saturation; only foreground is dimmed
-                // so inactive panes look de-emphasized without shifting bg color.
-                let (bg32, fg) = resolve_cell_colors(
-                    cell,
-                    is_cursor,
-                    is_selected,
-                    in_match,
-                    is_current_match,
-                    pane.cursor_shape,
-                    grid.cursor_color,
-                    grid.selection_color,
-                    theme,
-                );
-
-                fill_rect(buf, buf_width, cell_x, cell_y, draw_w, m.cell_height, bg32);
-
-                if cell.c != ' ' && (!cell.blink || pane.blink_visible) {
-                    self.draw_glyph(
-                        buf,
-                        buf_width,
-                        cell,
-                        cell_x,
-                        cell_y,
-                        draw_w,
-                        fg,
-                        bg32,
-                        pane.is_active,
-                        dim_factor,
-                        m,
-                        pane.rect,
-                    );
-                }
-
-                draw_cell_decorations(
-                    buf,
-                    buf_width,
-                    cell,
-                    cell_x,
-                    cell_y,
-                    draw_w,
-                    fg,
-                    m,
-                    pane.rect,
-                    theme,
-                    pane.is_active,
-                    dim_factor,
-                    pane.hovered_url,
-                );
-
-                if is_cursor && pane.cursor_shape != CursorShape::Block {
-                    draw_cursor_overlay(
-                        buf,
-                        buf_width,
-                        pane.cursor_shape,
-                        cell_x,
-                        cell_y,
-                        draw_w,
-                        color_u32(grid.cursor_color),
-                        m,
-                        pane.rect,
-                    );
-                }
-
-                col += cell_cols as usize;
-            }
-            row += 1;
+        for row in 0..grid.rows {
+            self.render_row(
+                buf,
+                buf_width,
+                pane,
+                mode,
+                m,
+                dim_factor,
+                theme,
+                sb_len,
+                selection_range,
+                row,
+            );
         }
 
         draw_scrollbar(
@@ -390,6 +280,138 @@ impl Renderer {
                 fg32,
                 clip,
             );
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_row(
+        &mut self,
+        buf: &mut [u32],
+        buf_width: u32,
+        pane: &PaneView,
+        mode: &InputMode,
+        m: &FontMetrics,
+        dim_factor: f32,
+        theme: &ResolvedTheme,
+        sb_len: usize,
+        selection_range: Option<(usize, usize, usize, usize)>,
+        row: usize,
+    ) {
+        let [rx, ry, rw, rh] = pane.rect;
+        let grid = pane.grid;
+        let abs_row = sb_len.saturating_sub(pane.scroll_offset) + row;
+        let row_match_lo = pane
+            .search_matches
+            .partition_point(|&(r, _, _)| r < abs_row);
+
+        let mut col = 0usize;
+        while col < grid.cols {
+            let cell = get_cell(grid, pane.scroll_offset, row, col);
+
+            if cell.wide_cont {
+                col += 1;
+                continue;
+            }
+
+            let cell_cols = if cell.wide { 2u32 } else { 1u32 };
+            let draw_w = cell_cols * m.cell_width;
+            let cell_x = rx + PANE_PADDING + col as u32 * m.cell_width;
+            let cell_y = ry + PANE_PADDING + row as u32 * m.cell_height;
+
+            if cell_x + draw_w > rx + rw.saturating_sub(PANE_PADDING)
+                || cell_y + m.cell_height > ry + rh.saturating_sub(PANE_PADDING)
+            {
+                col += cell_cols as usize;
+                continue;
+            }
+
+            let is_cursor = match mode {
+                InputMode::Visual {
+                    cur_col: vc,
+                    cur_row: vr,
+                    ..
+                } if pane.is_active => col == *vc && row == *vr && pane.blink_visible,
+                _ => pane.show_cursor && col == grid.cursor_col && row == grid.cursor_row,
+            };
+            let is_selected = selection_range.is_some_and(|(sc, sr, ec, er)| {
+                let (r0, c0, r1, c1) = if (sr, sc) <= (er, ec) {
+                    (sr, sc, er, ec)
+                } else {
+                    (er, ec, sr, sc)
+                };
+                (row > r0 || (row == r0 && col >= c0)) && (row < r1 || (row == r1 && col <= c1))
+            });
+
+            let (in_match, is_current_match) = search_highlight(
+                pane.search_matches,
+                pane.search_current,
+                abs_row,
+                col,
+                row_match_lo,
+            );
+
+            let (bg32, fg) = resolve_cell_colors(
+                cell,
+                is_cursor,
+                is_selected,
+                in_match,
+                is_current_match,
+                pane.cursor_shape,
+                grid.cursor_color,
+                grid.selection_color,
+                theme,
+            );
+
+            fill_rect(buf, buf_width, cell_x, cell_y, draw_w, m.cell_height, bg32);
+
+            if cell.c != ' ' && (!cell.blink || pane.blink_visible) {
+                self.draw_glyph(
+                    buf,
+                    buf_width,
+                    cell,
+                    cell_x,
+                    cell_y,
+                    draw_w,
+                    fg,
+                    bg32,
+                    pane.is_active,
+                    dim_factor,
+                    m,
+                    pane.rect,
+                );
+            }
+
+            draw_cell_decorations(
+                buf,
+                buf_width,
+                cell,
+                cell_x,
+                cell_y,
+                draw_w,
+                fg,
+                m,
+                pane.rect,
+                theme,
+                pane.is_active,
+                dim_factor,
+                pane.hovered_url,
+            );
+
+            if is_cursor && pane.cursor_shape != CursorShape::Block {
+                draw_cursor_overlay(
+                    buf,
+                    buf_width,
+                    pane.cursor_shape,
+                    cell_x,
+                    cell_y,
+                    draw_w,
+                    color_u32(grid.cursor_color),
+                    m,
+                    pane.rect,
+                );
+            }
+
+            col += cell_cols as usize;
         }
     }
 

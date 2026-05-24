@@ -20,6 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - move input/event handler methods (`handle_search_key`, `handle_command_palette_key`, `handle_rename_key`, `handle_config_key`, `handle_keyboard_input`, `handle_cursor_moved`, `handle_mouse_input`, `handle_mouse_wheel`, `apply_config`, `reseed_pane_palettes`, `copy_current_match`, `update_search_matches`, `scroll_to_match`) from `main.rs` to `src/app_event.rs` — reduces `main.rs` from 1707 to 1341 lines
 - move overlay rendering (`draw_config_panel`, `draw_command_palette`, `draw_quit_confirm`, `draw_save_session_confirm`) plus `draw_badge_label` and `draw_confirm_dialog` helpers to `renderer/overlays.rs`; extract `dim_buffer`, `fill_rect`, `draw_rect_border` primitives; move tests to `renderer/text_test.rs` — reduces `renderer/text.rs` from 3042 to 1129 lines
 - extract `handle_dec_private_modes`, `handle_erase_display`, `handle_erase_line`, `handle_sgr`, `handle_char_ops` from `csi_dispatch()` in `terminal/parser.rs`; extract `handle_global_shortcuts` from `handle_key_inner()` in `input/keybindings.rs`
+- extract `render_row` from `draw_pane()` in `renderer/text.rs` — moves the inner cell loop into its own method, eliminating double-nesting and reducing `draw_pane` cognitive complexity
+- extract `do_set_mode`, `do_clear_scrollback`, `do_rename_tab`, `do_search_next/prev`, `do_quit` from `dispatch_action()` in `app_state.rs` — reduces cognitive complexity from 41 to 16
+- extract `cell_char_at` helper from `selected_text()` and `make_char_cell` from `write_char()` in `terminal/grid.rs` — flattens deeply nested scroll/cell lookup logic
 
 ### Performance
 - replace `scroll_up`/`scroll_down` double-loop clones with `rotate_left`/`rotate_right`; reduces cost per scroll line ~3.3× (49 µs → 15 µs for 220×50); `seq 1 100000` drops from 4.4 s to 1.4 s
