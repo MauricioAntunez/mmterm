@@ -14,6 +14,7 @@ pub enum Action {
     ScrollToBottom,
     SplitH,
     SplitV,
+    AutoSplit,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -243,6 +244,7 @@ pub(crate) fn ctrl_w_action(key: &Key) -> Action {
         Key::Character(s) => match s.to_lowercase().as_str() {
             "v" => Action::SplitH,
             "s" => Action::SplitV,
+            "a" => Action::AutoSplit,
             "h" => Action::FocusLeft,
             "l" => Action::FocusRight,
             "k" => Action::FocusUp,

@@ -104,6 +104,7 @@ vim-style modal input, split panes, and multi-tab sessions.
 ### Split Panes
 - Binary-tree layout: `Node::Leaf(id)` or `Node::Split { dir, ratio, a, b }`.
 - Horizontal split: `Ctrl+W v` / Vertical split: `Ctrl+W s`.
+- Auto-split: `Ctrl+W a` — splits along the longest dimension (H if wider, V if taller).
 - Focus navigation: `Ctrl+W h/j/k/l` or arrow keys.
 - Cycle focus: `Ctrl+W w`.
 - Close pane: `Ctrl+W q` (closes tab when last pane).
@@ -345,6 +346,7 @@ writing a file.
 |---|---|
 | `Ctrl+W v` | Split horizontally (side by side) |
 | `Ctrl+W s` | Split vertically (top / bottom) |
+| `Ctrl+W a` | Auto-split along longest dimension |
 | `Ctrl+W h` / `←` | Focus left pane |
 | `Ctrl+W l` / `→` | Focus right pane |
 | `Ctrl+W k` / `↑` | Focus pane above |

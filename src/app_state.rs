@@ -45,6 +45,7 @@ pub enum AppEffect {
     ClosePane,
     CloseTab,
     SplitPane(SplitDir),
+    AutoSplitPane,
     ChangeFontSize(f32),
     ToggleLog,
     SendToPty(Vec<u8>),
@@ -594,6 +595,7 @@ impl AppState {
             // ── Pane / split (need PTY resize → delegated) ───────────────────
             Action::SplitH => vec![AppEffect::SplitPane(SplitDir::H)],
             Action::SplitV => vec![AppEffect::SplitPane(SplitDir::V)],
+            Action::AutoSplit => vec![AppEffect::AutoSplitPane],
             Action::ClosePane => vec![AppEffect::ClosePane],
             Action::FocusLeft => {
                 self.focus_dir(-1, 0);
@@ -986,6 +988,17 @@ mod tests {
             effects
                 .iter()
                 .any(|e| matches!(e, AppEffect::SplitPane(SplitDir::H)))
+        );
+    }
+
+    #[test]
+    fn dispatch_auto_split_returns_auto_split_effect() {
+        let mut s = make_state();
+        let effects = s.dispatch_action(Action::AutoSplit);
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, AppEffect::AutoSplitPane))
         );
     }
 

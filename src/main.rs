@@ -598,6 +598,23 @@ impl App {
                 AppEffect::ClosePane => self.do_close_pane(event_loop),
                 AppEffect::CloseTab => self.close_tab(event_loop),
                 AppEffect::SplitPane(dir) => self.do_split(dir),
+                AppEffect::AutoSplitPane => {
+                    let active = self.tab().active;
+                    let rect = self
+                        .tab()
+                        .layout
+                        .rects()
+                        .into_iter()
+                        .find(|(id, _)| *id == active)
+                        .map(|(_, r)| r)
+                        .unwrap_or([0, TAB_BAR_H, 100, 100]);
+                    let dir = if rect[2] >= rect[3] {
+                        SplitDir::H
+                    } else {
+                        SplitDir::V
+                    };
+                    self.do_split(dir);
+                }
                 AppEffect::ChangeFontSize(delta) => self.change_font_size(delta),
                 AppEffect::ResizePane { split_h, delta } => {
                     let active = self.tab().active;

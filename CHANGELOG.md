@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - clipboard `get_or_insert_with` panic in headless CI: replace `.expect()` with `.ok()` so Copy and VisualYankLine actions degrade gracefully when no display is available
 
 ### Added
+- auto-split pane with `Ctrl+W a`: splits along the longest dimension (horizontal if wider, vertical if taller)
 - resizable pane splits by dragging the separator line between panes; cursor changes to a resize icon on hover
 - keyboard pane resizing with `Ctrl+Shift+Arrow` keys (Right/Left grow/shrink horizontally, Down/Up grow/shrink vertically); minimum pane size is 10% of the parent region
 - `AppState` struct extracts all action-dispatch logic from `App` into a pure, winit-free type; `dispatch_action` returns `Vec<AppEffect>` allowing full unit-test coverage of every action without an event loop

@@ -138,6 +138,7 @@ You can also edit settings live with `Ctrl+,`.
 |---|---|
 | `Ctrl+W v` | Split horizontally |
 | `Ctrl+W s` | Split vertically |
+| `Ctrl+W a` | Auto-split (along longest dimension) |
 | `Ctrl+W h/j/k/l` | Focus left / down / up / right |
 | `Ctrl+W w` | Cycle focus |
 | `Ctrl+W q` | Close pane |

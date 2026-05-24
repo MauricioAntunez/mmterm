@@ -24,6 +24,11 @@ fn ctrl_w_s_splits_vertical() {
 }
 
 #[test]
+fn ctrl_w_a_auto_splits() {
+    assert!(matches!(ctrl_w_action(&char_key("a")), Action::AutoSplit));
+}
+
+#[test]
 fn ctrl_w_h_focuses_left() {
     assert!(matches!(ctrl_w_action(&char_key("h")), Action::FocusLeft));
 }
