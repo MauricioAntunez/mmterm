@@ -1,6 +1,7 @@
 use super::glyph::GlyphCache;
 use crate::input::InputMode;
 use crate::terminal::grid::{Cell, CursorShape};
+use crate::terminal::sixel::SixelImage;
 use crate::terminal::{Color, Grid};
 use crate::theme::ResolvedTheme;
 use crate::tui_config::ConfigPanel;
@@ -179,18 +180,8 @@ impl Renderer {
         let [rx, ry, rw, rh] = pane.rect;
         let grid = pane.grid;
 
-        // Pre-fill the entire pane rect so gutter pixels (the fractional strip
-        // at the right/bottom where the cell grid doesn't fully cover the rect)
-        // match the pane background instead of leaking the buf.fill color.
-        let pane_bg32 = color_u32(grid.default_bg);
-        for dy in 0..rh {
-            for dx in 0..rw {
-                let idx = ((ry + dy) * buf_width + rx + dx) as usize;
-                if idx < buf.len() {
-                    buf[idx] = pane_bg32;
-                }
-            }
-        }
+        // Pre-fill gutter pixels so they match the pane background.
+        fill_pane_background(buf, buf_width, pane.rect, color_u32(grid.default_bg));
 
         let selection_range = if pane.is_active {
             match mode {
@@ -213,7 +204,7 @@ impl Renderer {
         while row < grid.rows {
             // Absolute row in the combined scrollback+grid address space.
             let abs_row = sb_len.saturating_sub(pane.scroll_offset) + row;
-            // Binary-search lower bound for this row's matches (matches are sorted by abs_row).
+            // Binary-search lower bound for this row's matches (sorted by abs_row).
             let row_match_lo = pane
                 .search_matches
                 .partition_point(|&(r, _, _)| r < abs_row);
@@ -254,65 +245,31 @@ impl Renderer {
                     } else {
                         (er, ec, sr, sc)
                     };
-                    (row > r0 || (row == r0 && col >= c0)) && (row < r1 || (row == r1 && col <= c1))
+                    (row > r0 || (row == r0 && col >= c0))
+                        && (row < r1 || (row == r1 && col <= c1))
                 });
 
-                // Search highlight: scan matches for this abs_row.
-                let (in_match, is_current_match) = if !pane.search_matches.is_empty() {
-                    let mut found = false;
-                    let mut current = false;
-                    let mut i = row_match_lo;
-                    while i < pane.search_matches.len() && pane.search_matches[i].0 == abs_row {
-                        let (_, mc, mlen) = pane.search_matches[i];
-                        if col >= mc && col < mc + mlen {
-                            found = true;
-                            current = pane.search_current == Some(i);
-                            break;
-                        }
-                        i += 1;
-                    }
-                    (found, current)
-                } else {
-                    (false, false)
-                };
+                let (in_match, is_current_match) = search_highlight(
+                    pane.search_matches,
+                    pane.search_current,
+                    abs_row,
+                    col,
+                    row_match_lo,
+                );
 
-                // Apply reverse video before cursor/selection overrides.
-                let (cell_fg, cell_bg) = if cell.reverse {
-                    (cell.bg, cell.fg)
-                } else {
-                    (cell.fg, cell.bg)
-                };
-
-                let block_cursor = is_cursor && pane.cursor_shape == CursorShape::Block;
-                let bg = if block_cursor {
-                    grid.cursor_color
-                } else if is_current_match {
-                    theme.search_current
-                } else if in_match {
-                    theme.search_match
-                } else if is_selected {
-                    grid.selection_color
-                } else {
-                    cell_bg
-                };
-                let fg = if block_cursor {
-                    Color::BLACK
-                } else if in_match {
-                    SEARCH_MATCH_FG
-                } else if cell.dim {
-                    // Dim: blend fg 50% toward bg
-                    Color::rgb(
-                        ((cell_fg.r as u16 + cell_bg.r as u16) / 2) as u8,
-                        ((cell_fg.g as u16 + cell_bg.g as u16) / 2) as u8,
-                        ((cell_fg.b as u16 + cell_bg.b as u16) / 2) as u8,
-                    )
-                } else {
-                    cell_fg
-                };
-                // Background stays at full saturation in all panes; only
-                // foreground (text, emoji) is dimmed so inactive panes look
-                // visually de-emphasized without shifting the background color.
-                let bg32 = color_u32(bg);
+                // Background stays at full saturation; only foreground is dimmed
+                // so inactive panes look de-emphasized without shifting bg color.
+                let (bg32, fg) = resolve_cell_colors(
+                    cell,
+                    is_cursor,
+                    is_selected,
+                    in_match,
+                    is_current_match,
+                    pane.cursor_shape,
+                    grid.cursor_color,
+                    grid.selection_color,
+                    theme,
+                );
 
                 for dy in 0..m.cell_height {
                     for dx in 0..draw_w {
@@ -324,184 +281,22 @@ impl Renderer {
                 }
 
                 if cell.c != ' ' && (!cell.blink || pane.blink_visible) {
-                    let info = self.glyphs.get(cell.c, m.font_px, cell.bold, cell.italic);
-                    let (gw, gh) = (info.width, info.height);
-                    let glyph_top = m.baseline as i32 - (gh as i32 + info.ymin);
-                    let y_offset = glyph_top.max(0) as u32;
-                    // Center color emoji horizontally within the cell area.
-                    let x_base = if info.color && gw < draw_w {
-                        cell_x + (draw_w - gw) / 2
-                    } else {
-                        cell_x
-                    };
-
-                    if info.color {
-                        // RGBA bitmap (color emoji from FreeType): blit with per-pixel alpha.
-                        for gy in 0..gh {
-                            for gx in 0..gw {
-                                let base = ((gy * gw + gx) * 4) as usize;
-                                let a = info.bitmap[base + 3];
-                                if a == 0 {
-                                    continue;
-                                }
-                                let r = info.bitmap[base] as u32;
-                                let g = info.bitmap[base + 1] as u32;
-                                let b = info.bitmap[base + 2] as u32;
-                                let sx = x_base + gx;
-                                let sy = cell_y + y_offset + gy;
-                                if sx >= rx + rw || sy >= ry + rh {
-                                    continue;
-                                }
-                                let idx = (sy * buf_width + sx) as usize;
-                                if idx < buf.len() {
-                                    let px = (0xff_u32 << 24) | (r << 16) | (g << 8) | b;
-                                    let px = if pane.is_active {
-                                        px
-                                    } else {
-                                        dim_color(px, dim_factor)
-                                    };
-                                    buf[idx] = blend(bg32, px, a);
-                                }
-                            }
-                        }
-                    } else {
-                        // Grayscale alpha bitmap: blend fg color with background.
-                        let fg32 = {
-                            let c = color_u32(fg);
-                            if pane.is_active {
-                                c
-                            } else {
-                                dim_color(c, dim_factor)
-                            }
-                        };
-                        for gy in 0..gh {
-                            for gx in 0..gw {
-                                let alpha = info.bitmap[(gy * gw + gx) as usize];
-                                if alpha == 0 {
-                                    continue;
-                                }
-                                let sx = x_base + gx;
-                                let sy = cell_y + y_offset + gy;
-                                if sx >= rx + rw || sy >= ry + rh {
-                                    continue;
-                                }
-                                let idx = (sy * buf_width + sx) as usize;
-                                if idx < buf.len() {
-                                    buf[idx] = blend(bg32, fg32, alpha);
-                                }
-                            }
-                        }
-                    }
+                    self.draw_glyph(
+                        buf, buf_width, cell, cell_x, cell_y, draw_w, fg, bg32,
+                        pane.is_active, dim_factor, m, pane.rect,
+                    );
                 }
 
-                // Underline (1px, 2px from bottom): SGR 4 or OSC 8 hyperlink
-                let url_hovered =
-                    cell_url_hovered(cell.url.as_ref().map(|u| u.as_str()), pane.hovered_url);
-                let has_url = cell.url.is_some();
-                if cell.underline || has_url {
-                    let hyperlink_ul = color_u32(theme.palette[4]); // blue
-                    let ul_color = if has_url {
-                        let base = if url_hovered {
-                            hyperlink_ul
-                        } else {
-                            dim_color(hyperlink_ul, 0.45)
-                        };
-                        if pane.is_active {
-                            base
-                        } else {
-                            dim_color(base, dim_factor)
-                        }
-                    } else {
-                        color_u32(fg)
-                    };
-                    let ul_y = cell_y + m.cell_height.saturating_sub(2);
-                    if ul_y < ry + rh {
-                        for dx in 0..draw_w {
-                            let sx = cell_x + dx;
-                            if sx >= rx + rw {
-                                break;
-                            }
-                            let idx = (ul_y * buf_width + sx) as usize;
-                            if idx < buf.len() {
-                                buf[idx] = ul_color;
-                            }
-                        }
-                    }
-                }
+                draw_cell_decorations(
+                    buf, buf_width, cell, cell_x, cell_y, draw_w, fg, m, pane.rect,
+                    theme, pane.is_active, dim_factor, pane.hovered_url,
+                );
 
-                // Overline (1px at top of cell): SGR 53
-                if cell.overline {
-                    let ol_color = color_u32(fg);
-                    if cell_y < ry + rh {
-                        for dx in 0..draw_w {
-                            let sx = cell_x + dx;
-                            if sx >= rx + rw {
-                                break;
-                            }
-                            let idx = (cell_y * buf_width + sx) as usize;
-                            if idx < buf.len() {
-                                buf[idx] = ol_color;
-                            }
-                        }
-                    }
-                }
-
-                // Strikethrough (1px at mid-ascender)
-                if cell.strikethrough {
-                    let st_y = cell_y + m.baseline / 2;
-                    if st_y < ry + rh {
-                        let st_color = color_u32(fg);
-                        for dx in 0..draw_w {
-                            let sx = cell_x + dx;
-                            if sx >= rx + rw {
-                                break;
-                            }
-                            let idx = (st_y * buf_width + sx) as usize;
-                            if idx < buf.len() {
-                                buf[idx] = st_color;
-                            }
-                        }
-                    }
-                }
-
-                // Non-block cursor overlay (beam or underline).
                 if is_cursor && pane.cursor_shape != CursorShape::Block {
-                    let cur32 = color_u32(grid.cursor_color);
-                    match pane.cursor_shape {
-                        CursorShape::Beam => {
-                            // 1px vertical bar on the left edge of the cell
-                            for dy in 0..m.cell_height {
-                                let sy = cell_y + dy;
-                                if sy >= ry + rh {
-                                    break;
-                                }
-                                let idx = (sy * buf_width + cell_x) as usize;
-                                if idx < buf.len() {
-                                    buf[idx] = cur32;
-                                }
-                            }
-                        }
-                        CursorShape::Underline => {
-                            // 2px horizontal bar at the bottom of the cell
-                            for dy in 0..2u32 {
-                                let sy = cell_y + m.cell_height.saturating_sub(2) + dy;
-                                if sy >= ry + rh {
-                                    break;
-                                }
-                                for dx in 0..draw_w {
-                                    let sx = cell_x + dx;
-                                    if sx >= rx + rw {
-                                        break;
-                                    }
-                                    let idx = (sy * buf_width + sx) as usize;
-                                    if idx < buf.len() {
-                                        buf[idx] = cur32;
-                                    }
-                                }
-                            }
-                        }
-                        CursorShape::Block => unreachable!(),
-                    }
+                    draw_cursor_overlay(
+                        buf, buf_width, pane.cursor_shape, cell_x, cell_y,
+                        draw_w, color_u32(grid.cursor_color), m, pane.rect,
+                    );
                 }
 
                 col += cell_cols as usize;
@@ -509,77 +304,97 @@ impl Renderer {
             row += 1;
         }
 
-        // Scrollbar overlay: thin 4px strip on the right edge of the pane.
-        // Only drawn when there is scrollback content to indicate position.
-        let sb_len = grid.scrollback.len();
-        if sb_len > 0 && rw >= 6 && rh > 0 {
-            let total = sb_len + grid.rows;
-            let view_start = sb_len.saturating_sub(pane.scroll_offset);
+        draw_scrollbar(
+            buf, buf_width, pane.rect, grid.rows, sb_len, pane.scroll_offset, theme,
+        );
 
-            let thumb_h = ((rh as usize * grid.rows) / total).max(4) as u32;
-            let track_available = rh.saturating_sub(thumb_h) as usize;
-            let thumb_y = if total > grid.rows {
-                (track_available * view_start / (total - grid.rows)) as u32
-            } else {
-                0
-            };
+        // Images are only shown at live view; col/row coords are meaningless when scrolled.
+        if pane.scroll_offset == 0 {
+            draw_images(buf, buf_width, pane.rect, &grid.images, m);
+        }
+    }
 
-            let bar_x = rx + rw - 4;
-            let thumb_color = if pane.scroll_offset > 0 {
-                color_u32(theme.palette[4]) // blue when scrolled up
-            } else {
-                color_u32(theme.scrollbar) // dim at live view
-            };
-            let track_overlay = color_u32(theme.background);
+    #[allow(clippy::too_many_arguments)]
+    fn draw_glyph(
+        &mut self,
+        buf: &mut [u32],
+        buf_width: u32,
+        cell: &Cell,
+        cell_x: u32,
+        cell_y: u32,
+        draw_w: u32,
+        fg: Color,
+        bg32: u32,
+        pane_is_active: bool,
+        dim_factor: f32,
+        m: &FontMetrics,
+        clip: [u32; 4],
+    ) {
+        let [rx, ry, rw, rh] = clip;
+        let info = self.glyphs.get(cell.c, m.font_px, cell.bold, cell.italic);
+        let (gw, gh) = (info.width, info.height);
+        let glyph_top = m.baseline as i32 - (gh as i32 + info.ymin);
+        let y_offset = glyph_top.max(0) as u32;
+        // Center color emoji horizontally within the cell area.
+        let x_base = if info.color && gw < draw_w {
+            cell_x + (draw_w - gw) / 2
+        } else {
+            cell_x
+        };
 
-            for dy in 0..rh {
-                let sy = ry + dy;
-                // Track: dark semi-transparent strip
-                for dx in 0..4u32 {
-                    let idx = (sy * buf_width + bar_x + dx) as usize;
-                    if idx < buf.len() {
-                        buf[idx] = blend(buf[idx], track_overlay, 160);
+        if info.color {
+            // RGBA bitmap (color emoji): blit with per-pixel alpha.
+            for gy in 0..gh {
+                for gx in 0..gw {
+                    let base = ((gy * gw + gx) * 4) as usize;
+                    let a = info.bitmap[base + 3];
+                    if a == 0 {
+                        continue;
                     }
-                }
-                // Thumb: 2px wide, 1px inset from each side
-                if dy >= thumb_y && dy < thumb_y + thumb_h {
-                    for dx in 1..3u32 {
-                        let idx = (sy * buf_width + bar_x + dx) as usize;
-                        if idx < buf.len() {
-                            buf[idx] = thumb_color;
-                        }
+                    let r = info.bitmap[base] as u32;
+                    let g = info.bitmap[base + 1] as u32;
+                    let b = info.bitmap[base + 2] as u32;
+                    let sx = x_base + gx;
+                    let sy = cell_y + y_offset + gy;
+                    if sx >= rx + rw || sy >= ry + rh {
+                        continue;
+                    }
+                    let idx = (sy * buf_width + sx) as usize;
+                    if idx < buf.len() {
+                        let px = (0xff_u32 << 24) | (r << 16) | (g << 8) | b;
+                        let px = if pane_is_active {
+                            px
+                        } else {
+                            dim_color(px, dim_factor)
+                        };
+                        buf[idx] = blend(bg32, px, a);
                     }
                 }
             }
-        }
-
-        // Sixel image blit: pixel overlay on top of the cell layer.
-        // Images are only shown at scroll_offset == 0 (live view); their col/row
-        // coordinates are live-grid positions and become meaningless when scrolled.
-        if pane.scroll_offset == 0 {
-            for img in &grid.images {
-                let img_x = rx + PANE_PADDING + img.col as u32 * m.cell_width;
-                let img_y = ry + PANE_PADDING + img.row as u32 * m.cell_height;
-                for py in 0..img.height {
-                    for px in 0..img.width {
-                        let base = ((py * img.width + px) * 4) as usize;
-                        let a = img.pixels[base + 3];
-                        if a == 0 {
-                            continue;
-                        }
-                        let r = img.pixels[base] as u32;
-                        let g = img.pixels[base + 1] as u32;
-                        let b = img.pixels[base + 2] as u32;
-                        let sx = img_x + px;
-                        let sy = img_y + py;
-                        if sx >= rx + rw || sy >= ry + rh {
-                            continue;
-                        }
-                        let idx = (sy * buf_width + sx) as usize;
-                        if idx < buf.len() {
-                            let fg = 0xFF_00_00_00 | (r << 16) | (g << 8) | b;
-                            buf[idx] = blend(buf[idx], fg, a);
-                        }
+        } else {
+            // Grayscale alpha bitmap: blend fg color with background.
+            let fg32 = {
+                let c = color_u32(fg);
+                if pane_is_active {
+                    c
+                } else {
+                    dim_color(c, dim_factor)
+                }
+            };
+            for gy in 0..gh {
+                for gx in 0..gw {
+                    let alpha = info.bitmap[(gy * gw + gx) as usize];
+                    if alpha == 0 {
+                        continue;
+                    }
+                    let sx = x_base + gx;
+                    let sy = cell_y + y_offset + gy;
+                    if sx >= rx + rw || sy >= ry + rh {
+                        continue;
+                    }
+                    let idx = (sy * buf_width + sx) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = blend(bg32, fg32, alpha);
                     }
                 }
             }
@@ -1553,6 +1368,279 @@ fn blend(bg: u32, fg: u32, alpha: u8) -> u32 {
         | (blend_ch((bg >> 16) & 0xFF, (fg >> 16) & 0xFF) << 16)
         | (blend_ch((bg >> 8) & 0xFF, (fg >> 8) & 0xFF) << 8)
         | blend_ch(bg & 0xFF, fg & 0xFF)
+}
+
+fn fill_pane_background(buf: &mut [u32], buf_width: u32, rect: [u32; 4], color: u32) {
+    let [rx, ry, rw, rh] = rect;
+    for dy in 0..rh {
+        for dx in 0..rw {
+            let idx = ((ry + dy) * buf_width + rx + dx) as usize;
+            if idx < buf.len() {
+                buf[idx] = color;
+            }
+        }
+    }
+}
+
+fn search_highlight(
+    matches: &[(usize, usize, usize)],
+    current: Option<usize>,
+    abs_row: usize,
+    col: usize,
+    row_match_lo: usize,
+) -> (bool, bool) {
+    let mut in_match = false;
+    let mut is_current_match = false;
+    for (i, &(mr, mc, ml)) in matches.iter().enumerate().skip(row_match_lo) {
+        if mr != abs_row {
+            break;
+        }
+        if col >= mc && col < mc + ml {
+            in_match = true;
+            is_current_match = current == Some(i);
+        }
+    }
+    (in_match, is_current_match)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_cell_colors(
+    cell: &Cell,
+    is_cursor: bool,
+    is_selected: bool,
+    in_match: bool,
+    is_current_match: bool,
+    cursor_shape: CursorShape,
+    cursor_color: Color,
+    selection_color: Color,
+    theme: &ResolvedTheme,
+) -> (u32, Color) {
+    let (fg, bg) = if cell.reverse {
+        (cell.bg, cell.fg)
+    } else {
+        (cell.fg, cell.bg)
+    };
+    let fg = if cell.dim {
+        Color::rgb(
+            (fg.r as f32 * 0.5) as u8,
+            (fg.g as f32 * 0.5) as u8,
+            (fg.b as f32 * 0.5) as u8,
+        )
+    } else {
+        fg
+    };
+    let bg32 = if is_cursor && cursor_shape == CursorShape::Block {
+        color_u32(cursor_color)
+    } else if is_selected {
+        color_u32(selection_color)
+    } else if is_current_match {
+        color_u32(theme.search_current)
+    } else if in_match {
+        color_u32(theme.search_match)
+    } else {
+        color_u32(bg)
+    };
+    let fg = if (in_match || is_current_match) && !is_cursor {
+        SEARCH_MATCH_FG
+    } else {
+        fg
+    };
+    (bg32, fg)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_cell_decorations(
+    buf: &mut [u32],
+    buf_width: u32,
+    cell: &Cell,
+    cell_x: u32,
+    cell_y: u32,
+    draw_w: u32,
+    fg: Color,
+    m: &FontMetrics,
+    clip: [u32; 4],
+    theme: &ResolvedTheme,
+    pane_is_active: bool,
+    dim_factor: f32,
+    hovered_url: Option<&str>,
+) {
+    let [rx, ry, rw, rh] = clip;
+    let fg32 = if pane_is_active {
+        color_u32(fg)
+    } else {
+        dim_color(color_u32(fg), dim_factor)
+    };
+
+    let draw_hline = |buf: &mut [u32], y: u32, color: u32| {
+        if y < ry || y >= ry + rh {
+            return;
+        }
+        for dx in 0..draw_w {
+            let sx = cell_x + dx;
+            if sx >= rx + rw {
+                break;
+            }
+            let idx = (y * buf_width + sx) as usize;
+            if idx < buf.len() {
+                buf[idx] = color;
+            }
+        }
+    };
+
+    if cell.underline {
+        draw_hline(buf, cell_y + m.cell_height.saturating_sub(2), fg32);
+    }
+    if cell.strikethrough {
+        draw_hline(buf, cell_y + m.cell_height / 2, fg32);
+    }
+    if cell.overline {
+        draw_hline(buf, cell_y, fg32);
+    }
+
+    // OSC 8 hyperlink underline — always shown, brightens on hover.
+    if cell.url.is_some() {
+        let is_hovered = cell_url_hovered(cell.url.as_ref().map(|s| s.as_str()), hovered_url);
+        let link_color = {
+            let base = color_u32(theme.palette[4]);
+            if is_hovered {
+                base
+            } else if pane_is_active {
+                dim_color(base, 0.65)
+            } else {
+                dim_color(base, dim_factor)
+            }
+        };
+        draw_hline(buf, cell_y + m.cell_height.saturating_sub(2), link_color);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_cursor_overlay(
+    buf: &mut [u32],
+    buf_width: u32,
+    cursor_shape: CursorShape,
+    cell_x: u32,
+    cell_y: u32,
+    draw_w: u32,
+    cur32: u32,
+    m: &FontMetrics,
+    clip: [u32; 4],
+) {
+    let [rx, ry, rw, rh] = clip;
+    match cursor_shape {
+        CursorShape::Underline => {
+            let ul_y = cell_y + m.cell_height.saturating_sub(2);
+            if ul_y < ry + rh {
+                for dx in 0..draw_w {
+                    let sx = cell_x + dx;
+                    if sx >= rx + rw {
+                        break;
+                    }
+                    let idx = (ul_y * buf_width + sx) as usize;
+                    if idx < buf.len() {
+                        buf[idx] = cur32;
+                    }
+                }
+            }
+        }
+        CursorShape::Beam => {
+            for dy in 0..m.cell_height {
+                let sy = cell_y + dy;
+                if sy >= ry + rh {
+                    break;
+                }
+                let sx = cell_x;
+                if sx >= rx + rw {
+                    break;
+                }
+                let idx = (sy * buf_width + sx) as usize;
+                if idx < buf.len() {
+                    buf[idx] = cur32;
+                }
+            }
+        }
+        CursorShape::Block => {}
+    }
+}
+
+fn draw_scrollbar(
+    buf: &mut [u32],
+    buf_width: u32,
+    rect: [u32; 4],
+    grid_rows: usize,
+    sb_len: usize,
+    scroll_offset: usize,
+    theme: &ResolvedTheme,
+) {
+    if sb_len == 0 {
+        return;
+    }
+    let [rx, ry, rw, rh] = rect;
+    let scrollbar_x = rx + rw.saturating_sub(2);
+    let total = sb_len + grid_rows;
+    let thumb_h = ((grid_rows as f32 / total as f32) * rh as f32).max(4.0) as u32;
+    let scroll_pos = sb_len.saturating_sub(scroll_offset);
+    let thumb_y = ry + ((scroll_pos as f32 / total as f32) * rh as f32) as u32;
+    let color = if scroll_offset == 0 {
+        color_u32(theme.scrollbar)
+    } else {
+        color_u32(theme.palette[4])
+    };
+    for dy in 0..thumb_h {
+        let sy = thumb_y + dy;
+        if sy >= ry + rh {
+            break;
+        }
+        for dx in 0..2u32 {
+            let sx = scrollbar_x + dx;
+            if sx >= rx + rw {
+                break;
+            }
+            let idx = (sy * buf_width + sx) as usize;
+            if idx < buf.len() {
+                buf[idx] = color;
+            }
+        }
+    }
+}
+
+fn draw_images(
+    buf: &mut [u32],
+    buf_width: u32,
+    rect: [u32; 4],
+    images: &[SixelImage],
+    m: &FontMetrics,
+) {
+    let [rx, ry, rw, rh] = rect;
+    for img in images {
+        let img_x = rx + PANE_PADDING + img.col as u32 * m.cell_width;
+        let img_y = ry + PANE_PADDING + img.row as u32 * m.cell_height;
+        for py in 0..img.height {
+            for px_i in 0..img.width {
+                let base = ((py * img.width + px_i) * 4) as usize;
+                if base + 3 >= img.pixels.len() {
+                    continue;
+                }
+                let a = img.pixels[base + 3];
+                if a == 0 {
+                    continue;
+                }
+                let r = img.pixels[base] as u32;
+                let g = img.pixels[base + 1] as u32;
+                let b = img.pixels[base + 2] as u32;
+                let sx = img_x + px_i;
+                let sy = img_y + py;
+                if sx >= rx + rw || sy >= ry + rh {
+                    continue;
+                }
+                let idx = (sy * buf_width + sx) as usize;
+                if idx < buf.len() {
+                    let src = (0xff_u32 << 24) | (r << 16) | (g << 8) | b;
+                    buf[idx] = blend(buf[idx], src, a);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
