@@ -710,78 +710,17 @@ impl App {
                 AppEffect::ClosePane => self.do_close_pane(event_loop),
                 AppEffect::CloseTab => self.close_tab(event_loop),
                 AppEffect::SplitPane(dir) => self.do_split(dir),
-                AppEffect::AutoSplitPane => {
-                    let active = self.tab().active;
-                    let rect = self
-                        .tab()
-                        .layout
-                        .rects()
-                        .into_iter()
-                        .find(|(id, _)| *id == active)
-                        .map(|(_, r)| r)
-                        .unwrap_or([0, TAB_BAR_H, 100, 100]);
-                    let dir = if rect[2] >= rect[3] {
-                        SplitDir::H
-                    } else {
-                        SplitDir::V
-                    };
-                    self.do_split(dir);
-                }
+                AppEffect::AutoSplitPane => self.do_auto_split(),
                 AppEffect::ChangeFontSize(delta) => self.change_font_size(delta),
-                AppEffect::ResizePane { split_h, delta } => {
-                    let active = self.tab().active;
-                    let ai = self.state.active_tab;
-                    self.state.tabs[ai]
-                        .layout
-                        .nudge_pane(active, split_h, delta);
-                    Self::sync_pane_sizes_tab(&mut self.state.tabs[ai]);
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                }
-                AppEffect::ToggleLog => {
-                    let active = self.tab().active;
-                    let log_dir = self.state.config.logging.log_dir.clone();
-                    if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
-                        if entry.log_file.is_some() {
-                            entry.log_file = None;
-                            log::info!("Logging stopped for pane {active}");
-                        } else {
-                            entry.log_file = open_log_file(active, &log_dir);
-                        }
-                    }
-                }
+                AppEffect::ResizePane { split_h, delta } => self.do_resize_pane(split_h, delta),
+                AppEffect::ToggleLog => self.do_toggle_log(),
                 AppEffect::SendToPty(bytes) => {
                     let active = self.tab().active;
                     if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
                         let _ = entry.pty.write_input(&bytes);
                     }
                 }
-                AppEffect::Paste => {
-                    let text = self
-                        .state
-                        .clipboard
-                        .as_mut()
-                        .and_then(|cb| cb.get_text().ok())
-                        .or_else(|| Clipboard::new().ok()?.get_text().ok());
-                    if let Some(text) = text {
-                        let active = self.tab().active;
-                        if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
-                            let bracketed = entry.pane.parser.grid.bracketed_paste;
-                            let mut data = Vec::new();
-                            if bracketed {
-                                data.extend_from_slice(b"\x1b[200~");
-                            }
-                            data.extend_from_slice(text.as_bytes());
-                            if bracketed {
-                                data.extend_from_slice(b"\x1b[201~");
-                            }
-                            let _ = entry.pty.write_input(&data);
-                        }
-                    } else {
-                        log::warn!("Clipboard read failed");
-                    }
-                }
+                AppEffect::Paste => self.do_paste(),
             }
         }
         let focus_after = (
@@ -806,6 +745,75 @@ impl App {
         {
             let seq: &[u8] = if gained { b"\x1b[I" } else { b"\x1b[O" };
             let _ = entry.pty.write_input(seq);
+        }
+    }
+
+    // ── Effect helpers ────────────────────────────────────────────────────────
+
+    fn do_auto_split(&mut self) {
+        let active = self.tab().active;
+        let rect = self
+            .tab()
+            .layout
+            .rects()
+            .into_iter()
+            .find(|(id, _)| *id == active)
+            .map(|(_, r)| r)
+            .unwrap_or([0, TAB_BAR_H, 100, 100]);
+        let dir = if rect[2] >= rect[3] {
+            SplitDir::H
+        } else {
+            SplitDir::V
+        };
+        self.do_split(dir);
+    }
+
+    fn do_resize_pane(&mut self, split_h: bool, delta: f32) {
+        let active = self.tab().active;
+        let ai = self.state.active_tab;
+        self.state.tabs[ai].layout.nudge_pane(active, split_h, delta);
+        Self::sync_pane_sizes_tab(&mut self.state.tabs[ai]);
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
+    fn do_toggle_log(&mut self) {
+        let active = self.tab().active;
+        let log_dir = self.state.config.logging.log_dir.clone();
+        if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+            if entry.log_file.is_some() {
+                entry.log_file = None;
+                log::info!("Logging stopped for pane {active}");
+            } else {
+                entry.log_file = open_log_file(active, &log_dir);
+            }
+        }
+    }
+
+    fn do_paste(&mut self) {
+        let text = self
+            .state
+            .clipboard
+            .as_mut()
+            .and_then(|cb| cb.get_text().ok())
+            .or_else(|| Clipboard::new().ok()?.get_text().ok());
+        if let Some(text) = text {
+            let active = self.tab().active;
+            if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+                let bracketed = entry.pane.parser.grid.bracketed_paste;
+                let mut data = Vec::new();
+                if bracketed {
+                    data.extend_from_slice(b"\x1b[200~");
+                }
+                data.extend_from_slice(text.as_bytes());
+                if bracketed {
+                    data.extend_from_slice(b"\x1b[201~");
+                }
+                let _ = entry.pty.write_input(&data);
+            }
+        } else {
+            log::warn!("Clipboard read failed");
         }
     }
 

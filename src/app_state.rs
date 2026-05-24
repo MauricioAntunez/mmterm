@@ -325,6 +325,134 @@ impl AppState {
             .unwrap_or((0, 0))
     }
 
+    // ── Visual sub-dispatch ──────────────────────────────────────────────────
+
+    fn dispatch_visual_action(&mut self, action: Action) -> Vec<AppEffect> {
+        match action {
+            Action::Copy => {
+                if let InputMode::Visual {
+                    start_col,
+                    start_row,
+                    cur_col,
+                    cur_row,
+                    anchored: true,
+                } = self.mode.clone()
+                {
+                    if let Some(entry) = self.active_entry() {
+                        let text = entry.pane.parser.grid.selected_text(
+                            start_col,
+                            start_row,
+                            cur_col,
+                            cur_row,
+                            entry.pane.scroll_offset,
+                        );
+                        self.copy_text_to_clipboard(text);
+                    }
+                    self.mode = InputMode::Insert;
+                }
+            }
+            Action::VisualSwapAnchor => {
+                if let InputMode::Visual {
+                    start_col,
+                    start_row,
+                    cur_col,
+                    cur_row,
+                    anchored,
+                } = self.mode.clone()
+                {
+                    self.mode = InputMode::Visual {
+                        start_col: cur_col,
+                        start_row: cur_row,
+                        cur_col: start_col,
+                        cur_row: start_row,
+                        anchored,
+                    };
+                }
+            }
+            Action::VisualAnchor => {
+                if let InputMode::Visual {
+                    cur_col, cur_row, ..
+                } = self.mode.clone()
+                {
+                    self.mode = InputMode::Visual {
+                        start_col: cur_col,
+                        start_row: cur_row,
+                        cur_col,
+                        cur_row,
+                        anchored: true,
+                    };
+                }
+            }
+            Action::VisualWordForward => self.move_visual_cursor(crate::motion::word_forward),
+            Action::VisualWordBackward => self.move_visual_cursor(crate::motion::word_backward),
+            Action::VisualWordEnd => self.move_visual_cursor(crate::motion::word_end),
+            Action::VisualYankLine => {
+                if let InputMode::Visual { cur_row, .. } = self.mode.clone() {
+                    if let Some(entry) = self.active_entry() {
+                        let cols = entry.pane.parser.grid.cols.saturating_sub(1);
+                        let text = entry.pane.parser.grid.selected_text(
+                            0,
+                            cur_row,
+                            cols,
+                            cur_row,
+                            entry.pane.scroll_offset,
+                        );
+                        self.copy_text_to_clipboard(text);
+                    }
+                    self.mode = InputMode::Insert;
+                }
+            }
+            _ => {}
+        }
+        vec![AppEffect::Redraw]
+    }
+
+    fn visual_boundary_scroll_up(&mut self, n: usize) {
+        let grid_rows = self.active_grid_rows();
+        if let Some(e) = self.active_entry_mut() {
+            e.pane.scroll_up(n);
+        }
+        if let InputMode::Visual {
+            start_col,
+            start_row,
+            cur_col,
+            anchored,
+            ..
+        } = self.mode.clone()
+        {
+            self.mode = InputMode::Visual {
+                start_col,
+                start_row: (start_row + n).min(grid_rows.saturating_sub(1)),
+                cur_col,
+                cur_row: 0,
+                anchored,
+            };
+        }
+    }
+
+    fn visual_boundary_scroll_down(&mut self, n: usize) {
+        let grid_rows = self.active_grid_rows();
+        if let Some(e) = self.active_entry_mut() {
+            e.pane.scroll_down(n);
+        }
+        if let InputMode::Visual {
+            start_col,
+            start_row,
+            cur_col,
+            anchored,
+            ..
+        } = self.mode.clone()
+        {
+            self.mode = InputMode::Visual {
+                start_col,
+                start_row: start_row.saturating_sub(n),
+                cur_col,
+                cur_row: grid_rows.saturating_sub(1),
+                anchored,
+            };
+        }
+    }
+
     // ── Action dispatch ──────────────────────────────────────────────────────
     //
     // Handles all actions that are pure state mutations. Returns `AppEffect`s
@@ -411,136 +539,19 @@ impl AppState {
             }
 
             // ── Copy / Visual ────────────────────────────────────────────────
-            Action::Copy => {
-                if let InputMode::Visual {
-                    start_col,
-                    start_row,
-                    cur_col,
-                    cur_row,
-                    anchored: true,
-                } = self.mode.clone()
-                {
-                    if let Some(entry) = self.active_entry() {
-                        let text = entry.pane.parser.grid.selected_text(
-                            start_col,
-                            start_row,
-                            cur_col,
-                            cur_row,
-                            entry.pane.scroll_offset,
-                        );
-                        self.copy_text_to_clipboard(text);
-                    }
-                    self.mode = InputMode::Insert;
-                }
-                vec![AppEffect::Redraw]
-            }
-            Action::VisualSwapAnchor => {
-                if let InputMode::Visual {
-                    start_col,
-                    start_row,
-                    cur_col,
-                    cur_row,
-                    anchored,
-                } = self.mode.clone()
-                {
-                    self.mode = InputMode::Visual {
-                        start_col: cur_col,
-                        start_row: cur_row,
-                        cur_col: start_col,
-                        cur_row: start_row,
-                        anchored,
-                    };
-                }
-                vec![AppEffect::Redraw]
-            }
-            Action::VisualAnchor => {
-                if let InputMode::Visual {
-                    cur_col, cur_row, ..
-                } = self.mode.clone()
-                {
-                    self.mode = InputMode::Visual {
-                        start_col: cur_col,
-                        start_row: cur_row,
-                        cur_col,
-                        cur_row,
-                        anchored: true,
-                    };
-                }
-                vec![AppEffect::Redraw]
-            }
-            Action::VisualWordForward => {
-                self.move_visual_cursor(crate::motion::word_forward);
-                vec![AppEffect::Redraw]
-            }
-            Action::VisualWordBackward => {
-                self.move_visual_cursor(crate::motion::word_backward);
-                vec![AppEffect::Redraw]
-            }
-            Action::VisualWordEnd => {
-                self.move_visual_cursor(crate::motion::word_end);
-                vec![AppEffect::Redraw]
-            }
-            Action::VisualYankLine => {
-                if let InputMode::Visual { cur_row, .. } = self.mode.clone() {
-                    if let Some(entry) = self.active_entry() {
-                        let cols = entry.pane.parser.grid.cols.saturating_sub(1);
-                        let text = entry.pane.parser.grid.selected_text(
-                            0,
-                            cur_row,
-                            cols,
-                            cur_row,
-                            entry.pane.scroll_offset,
-                        );
-                        self.copy_text_to_clipboard(text);
-                    }
-                    self.mode = InputMode::Insert;
-                }
-                vec![AppEffect::Redraw]
-            }
+            Action::Copy
+            | Action::VisualSwapAnchor
+            | Action::VisualAnchor
+            | Action::VisualWordForward
+            | Action::VisualWordBackward
+            | Action::VisualWordEnd
+            | Action::VisualYankLine => self.dispatch_visual_action(action),
             Action::VisualBoundaryUp(n) => {
-                let grid_rows = self.active_grid_rows();
-                if let Some(e) = self.active_entry_mut() {
-                    e.pane.scroll_up(n);
-                }
-                if let InputMode::Visual {
-                    start_col,
-                    start_row,
-                    cur_col,
-                    anchored,
-                    ..
-                } = self.mode.clone()
-                {
-                    self.mode = InputMode::Visual {
-                        start_col,
-                        start_row: (start_row + n).min(grid_rows.saturating_sub(1)),
-                        cur_col,
-                        cur_row: 0,
-                        anchored,
-                    };
-                }
+                self.visual_boundary_scroll_up(n);
                 vec![AppEffect::Redraw]
             }
             Action::VisualBoundaryDown(n) => {
-                let grid_rows = self.active_grid_rows();
-                if let Some(e) = self.active_entry_mut() {
-                    e.pane.scroll_down(n);
-                }
-                if let InputMode::Visual {
-                    start_col,
-                    start_row,
-                    cur_col,
-                    anchored,
-                    ..
-                } = self.mode.clone()
-                {
-                    self.mode = InputMode::Visual {
-                        start_col,
-                        start_row: start_row.saturating_sub(n),
-                        cur_col,
-                        cur_row: grid_rows.saturating_sub(1),
-                        anchored,
-                    };
-                }
+                self.visual_boundary_scroll_down(n);
                 vec![AppEffect::Redraw]
             }
 
