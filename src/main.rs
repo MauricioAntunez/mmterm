@@ -341,25 +341,17 @@ impl App {
         for (tab_idx, tab) in self.state.tabs.iter_mut().enumerate() {
             let ids: Vec<usize> = tab.panes.keys().copied().collect();
             for id in ids {
-                let entry = tab.panes.get_mut(&id).unwrap();
-                let (got_data, more, disconnected) =
-                    poll_pane_bytes(entry, &mut self.state.clipboard);
+                let (got_data, more, disconnected) = {
+                    let entry = tab.panes.get_mut(&id).unwrap();
+                    poll_pane_bytes(entry, &mut self.state.clipboard)
+                };
                 if more {
                     has_more = true;
                 }
                 if disconnected {
                     exited.push((tab_idx, id));
                 }
-                if got_data && detect_urls {
-                    entry.pane.parser.grid.scan_urls();
-                }
-                if got_data && tab_idx != active_tab {
-                    tab.has_activity = true;
-                }
-                if entry.pane.parser.grid.bell_pending {
-                    entry.pane.parser.grid.bell_pending = false;
-                    tab.bell_flash_until = Some(Instant::now() + Duration::from_millis(100));
-                }
+                update_tab_after_pane_poll(tab, id, got_data, detect_urls, tab_idx != active_tab);
             }
         }
         if has_more {
@@ -644,27 +636,8 @@ impl App {
                         w.request_redraw();
                     }
                 }
-                AppEffect::ToggleFullscreen => {
-                    if let Some(w) = &self.window {
-                        let fs = if w.fullscreen().is_some() {
-                            None
-                        } else {
-                            Some(Fullscreen::Borderless(None))
-                        };
-                        w.set_fullscreen(fs);
-                    }
-                }
-                AppEffect::NewTab => {
-                    let (w, h) = self
-                        .window
-                        .as_ref()
-                        .map(|w| {
-                            let s = w.inner_size();
-                            (s.width, s.height)
-                        })
-                        .unwrap_or((800, 600));
-                    self.new_tab(w, h);
-                }
+                AppEffect::ToggleFullscreen => self.do_toggle_fullscreen(),
+                AppEffect::NewTab => self.do_new_tab(),
                 AppEffect::ClosePane => self.do_close_pane(event_loop),
                 AppEffect::CloseTab => self.close_tab(event_loop),
                 AppEffect::SplitPane(dir) => self.do_split(dir),
@@ -672,12 +645,7 @@ impl App {
                 AppEffect::ChangeFontSize(delta) => self.change_font_size(delta),
                 AppEffect::ResizePane { split_h, delta } => self.do_resize_pane(split_h, delta),
                 AppEffect::ToggleLog => self.do_toggle_log(),
-                AppEffect::SendToPty(bytes) => {
-                    let active = self.tab().active;
-                    if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
-                        let _ = entry.pty.write_input(&bytes);
-                    }
-                }
+                AppEffect::SendToPty(bytes) => self.do_send_to_pty(bytes),
                 AppEffect::Paste => self.do_paste(),
             }
         }
@@ -774,6 +742,36 @@ impl App {
             }
         } else {
             log::warn!("Clipboard read failed");
+        }
+    }
+
+    fn do_toggle_fullscreen(&mut self) {
+        if let Some(w) = &self.window {
+            let fs = if w.fullscreen().is_some() {
+                None
+            } else {
+                Some(Fullscreen::Borderless(None))
+            };
+            w.set_fullscreen(fs);
+        }
+    }
+
+    fn do_new_tab(&mut self) {
+        let (w, h) = self
+            .window
+            .as_ref()
+            .map(|win| {
+                let s = win.inner_size();
+                (s.width, s.height)
+            })
+            .unwrap_or((800, 600));
+        self.new_tab(w, h);
+    }
+
+    fn do_send_to_pty(&mut self, bytes: Vec<u8>) {
+        let active = self.tab().active;
+        if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+            let _ = entry.pty.write_input(&bytes);
         }
     }
 
@@ -1172,6 +1170,27 @@ impl ApplicationHandler for App {
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(next));
         }
+    }
+}
+
+fn update_tab_after_pane_poll(
+    tab: &mut TabState,
+    id: usize,
+    got_data: bool,
+    detect_urls: bool,
+    tab_is_background: bool,
+) {
+    if let Some(entry) = tab.panes.get_mut(&id) {
+        if got_data && detect_urls {
+            entry.pane.parser.grid.scan_urls();
+        }
+        if entry.pane.parser.grid.bell_pending {
+            entry.pane.parser.grid.bell_pending = false;
+            tab.bell_flash_until = Some(Instant::now() + Duration::from_millis(100));
+        }
+    }
+    if got_data && tab_is_background {
+        tab.has_activity = true;
     }
 }
 
