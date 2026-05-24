@@ -23,6 +23,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - extract `render_row` from `draw_pane()` in `renderer/text.rs` — moves the inner cell loop into its own method, eliminating double-nesting and reducing `draw_pane` cognitive complexity
 - extract `do_set_mode`, `do_clear_scrollback`, `do_rename_tab`, `do_search_next/prev`, `do_quit` from `dispatch_action()` in `app_state.rs` — reduces cognitive complexity from 41 to 16
 - extract `cell_char_at` helper from `selected_text()` and `make_char_cell` from `write_char()` in `terminal/grid.rs` — flattens deeply nested scroll/cell lookup logic
+- extract `try_dispatch_overlay_key`, `do_middle_click_paste` from `handle_keyboard_input/handle_mouse_input` in `app_event.rs`
+- extract `is_cell_cursor`, `is_cell_selected`, `draw_clipped_hline`, `draw_clipped_vline`, `link_underline_color`, `blit_sixel_pixel` from `renderer/text.rs` — reduces max per-function complexity from 30 → 19; simplifies `draw_cursor_overlay`, `draw_cell_decorations`, and `draw_images`
 
 ### Performance
 - replace `scroll_up`/`scroll_down` double-loop clones with `rotate_left`/`rotate_right`; reduces cost per scroll line ~3.3× (49 µs → 15 µs for 220×50); `seq 1 100000` drops from 4.4 s to 1.4 s

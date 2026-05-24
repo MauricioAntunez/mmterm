@@ -300,57 +300,10 @@ impl App {
         event_loop: &ActiveEventLoop,
     ) {
         use std::time::Instant;
-
         self.state.cursor_blink = true;
         self.state.blink_last = Instant::now();
 
-        if self.state.quit_pending {
-            let confirmed = matches!(
-                event.logical_key,
-                Key::Character(ref s) if s.eq_ignore_ascii_case("y")
-            );
-            self.state.quit_pending = false;
-            if confirmed {
-                event_loop.exit();
-            } else if let Some(w) = &self.window {
-                w.request_redraw();
-            }
-            return;
-        }
-
-        if self.state.config_panel.is_some() {
-            self.handle_config_key(&event);
-            if let Some(w) = &self.window {
-                w.request_redraw();
-            }
-            return;
-        }
-
-        if matches!(self.state.mode, InputMode::RenameTab { .. }) {
-            self.handle_rename_key(&event);
-            return;
-        }
-
-        if matches!(self.state.mode, InputMode::Search { .. }) {
-            self.handle_search_key(&event);
-            if let Some(w) = &self.window {
-                w.request_redraw();
-            }
-            return;
-        }
-
-        if matches!(self.state.mode, InputMode::CommandPalette { .. }) {
-            self.handle_command_palette_key(&event, event_loop);
-            if let Some(w) = &self.window {
-                w.request_redraw();
-            }
-            return;
-        }
-
-        if self.state.ctrl_w_pending {
-            self.state.ctrl_w_pending = false;
-            let action = handle_ctrl_w(&event);
-            self.execute_action(action, event_loop);
+        if self.try_dispatch_overlay_key(&event, event_loop) {
             return;
         }
 
@@ -367,7 +320,6 @@ impl App {
                 })
                 .unwrap_or((80, 24, false))
         };
-
         let action = handle_key(
             &event,
             &self.modifiers,
@@ -377,6 +329,58 @@ impl App {
             app_cursor,
         );
         self.execute_action(action, event_loop);
+    }
+
+    fn try_dispatch_overlay_key(
+        &mut self,
+        event: &winit::event::KeyEvent,
+        event_loop: &ActiveEventLoop,
+    ) -> bool {
+        if self.state.quit_pending {
+            let confirmed = matches!(
+                event.logical_key,
+                Key::Character(ref s) if s.eq_ignore_ascii_case("y")
+            );
+            self.state.quit_pending = false;
+            if confirmed {
+                event_loop.exit();
+            } else if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+            return true;
+        }
+        if self.state.config_panel.is_some() {
+            self.handle_config_key(event);
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+            return true;
+        }
+        if matches!(self.state.mode, InputMode::RenameTab { .. }) {
+            self.handle_rename_key(event);
+            return true;
+        }
+        if matches!(self.state.mode, InputMode::Search { .. }) {
+            self.handle_search_key(event);
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+            return true;
+        }
+        if matches!(self.state.mode, InputMode::CommandPalette { .. }) {
+            self.handle_command_palette_key(event, event_loop);
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+            return true;
+        }
+        if self.state.ctrl_w_pending {
+            self.state.ctrl_w_pending = false;
+            let action = handle_ctrl_w(event);
+            self.execute_action(action, event_loop);
+            return true;
+        }
+        false
     }
 
     pub(super) fn handle_cursor_moved(&mut self, px: f64, py: f64) {
@@ -509,20 +513,24 @@ impl App {
                 }
             }
         } else if button == MouseButton::Middle && state == ElementState::Pressed {
-            let text = self
-                .state
-                .clipboard
-                .as_mut()
-                .and_then(|cb| cb.get_text().ok())
-                .or_else(|| Clipboard::new().ok()?.get_text().ok());
-            if let Some(text) = text {
-                let active = self.tab().active;
-                if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
-                    let mut data = b"\x1b[200~".to_vec();
-                    data.extend_from_slice(text.as_bytes());
-                    data.extend_from_slice(b"\x1b[201~");
-                    let _ = entry.pty.write_input(&data);
-                }
+            self.do_middle_click_paste();
+        }
+    }
+
+    fn do_middle_click_paste(&mut self) {
+        let text = self
+            .state
+            .clipboard
+            .as_mut()
+            .and_then(|cb| cb.get_text().ok())
+            .or_else(|| Clipboard::new().ok()?.get_text().ok());
+        if let Some(text) = text {
+            let active = self.tab().active;
+            if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
+                let mut data = b"\x1b[200~".to_vec();
+                data.extend_from_slice(text.as_bytes());
+                data.extend_from_slice(b"\x1b[201~");
+                let _ = entry.pty.write_input(&data);
             }
         }
     }

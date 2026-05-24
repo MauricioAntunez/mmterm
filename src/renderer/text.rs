@@ -325,22 +325,8 @@ impl Renderer {
                 continue;
             }
 
-            let is_cursor = match mode {
-                InputMode::Visual {
-                    cur_col: vc,
-                    cur_row: vr,
-                    ..
-                } if pane.is_active => col == *vc && row == *vr && pane.blink_visible,
-                _ => pane.show_cursor && col == grid.cursor_col && row == grid.cursor_row,
-            };
-            let is_selected = selection_range.is_some_and(|(sc, sr, ec, er)| {
-                let (r0, c0, r1, c1) = if (sr, sc) <= (er, ec) {
-                    (sr, sc, er, ec)
-                } else {
-                    (er, ec, sr, sc)
-                };
-                (row > r0 || (row == r0 && col >= c0)) && (row < r1 || (row == r1 && col <= c1))
-            });
+            let is_cursor = is_cell_cursor(pane, mode, col, row, grid);
+            let is_selected = is_cell_selected(selection_range, col, row);
 
             let (in_match, is_current_match) = search_highlight(
                 pane.search_matches,
@@ -937,6 +923,71 @@ fn resolve_cell_colors(
     (bg32, fg)
 }
 
+fn is_cell_cursor(pane: &PaneView, mode: &InputMode, col: usize, row: usize, grid: &Grid) -> bool {
+    match mode {
+        InputMode::Visual {
+            cur_col: vc,
+            cur_row: vr,
+            ..
+        } if pane.is_active => col == *vc && row == *vr && pane.blink_visible,
+        _ => pane.show_cursor && col == grid.cursor_col && row == grid.cursor_row,
+    }
+}
+
+fn is_cell_selected(
+    selection_range: Option<(usize, usize, usize, usize)>,
+    col: usize,
+    row: usize,
+) -> bool {
+    selection_range.is_some_and(|(sc, sr, ec, er)| {
+        let (r0, c0, r1, c1) = if (sr, sc) <= (er, ec) {
+            (sr, sc, er, ec)
+        } else {
+            (er, ec, sr, sc)
+        };
+        (row > r0 || (row == r0 && col >= c0)) && (row < r1 || (row == r1 && col <= c1))
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_clipped_hline(
+    buf: &mut [u32],
+    buf_width: u32,
+    y: u32,
+    x: u32,
+    w: u32,
+    clip: [u32; 4],
+    color: u32,
+) {
+    let [rx, ry, rw, rh] = clip;
+    if y < ry || y >= ry + rh {
+        return;
+    }
+    let x_end = (x + w).min(rx + rw);
+    for sx in x..x_end {
+        let idx = (y * buf_width + sx) as usize;
+        if idx < buf.len() {
+            buf[idx] = color;
+        }
+    }
+}
+
+fn link_underline_color(
+    theme: &ResolvedTheme,
+    is_hovered: bool,
+    pane_is_active: bool,
+    dim_factor: f32,
+) -> u32 {
+    let base = color_u32(theme.palette[4]);
+    if is_hovered {
+        base
+    } else if pane_is_active {
+        dim_color(base, 0.65)
+    } else {
+        dim_color(base, dim_factor)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_cell_decorations(
     buf: &mut [u32],
@@ -953,53 +1004,71 @@ fn draw_cell_decorations(
     dim_factor: f32,
     hovered_url: Option<&str>,
 ) {
-    let [rx, ry, rw, rh] = clip;
     let fg32 = if pane_is_active {
         color_u32(fg)
     } else {
         dim_color(color_u32(fg), dim_factor)
     };
 
-    let draw_hline = |buf: &mut [u32], y: u32, color: u32| {
-        if y < ry || y >= ry + rh {
-            return;
-        }
-        for dx in 0..draw_w {
-            let sx = cell_x + dx;
-            if sx >= rx + rw {
-                break;
-            }
-            let idx = (y * buf_width + sx) as usize;
-            if idx < buf.len() {
-                buf[idx] = color;
-            }
-        }
-    };
-
     if cell.underline {
-        draw_hline(buf, cell_y + m.cell_height.saturating_sub(2), fg32);
+        draw_clipped_hline(
+            buf,
+            buf_width,
+            cell_y + m.cell_height.saturating_sub(2),
+            cell_x,
+            draw_w,
+            clip,
+            fg32,
+        );
     }
     if cell.strikethrough {
-        draw_hline(buf, cell_y + m.cell_height / 2, fg32);
+        draw_clipped_hline(
+            buf,
+            buf_width,
+            cell_y + m.cell_height / 2,
+            cell_x,
+            draw_w,
+            clip,
+            fg32,
+        );
     }
     if cell.overline {
-        draw_hline(buf, cell_y, fg32);
+        draw_clipped_hline(buf, buf_width, cell_y, cell_x, draw_w, clip, fg32);
     }
-
-    // OSC 8 hyperlink underline — always shown, brightens on hover.
     if cell.url.is_some() {
         let is_hovered = cell_url_hovered(cell.url.as_ref().map(|s| s.as_str()), hovered_url);
-        let link_color = {
-            let base = color_u32(theme.palette[4]);
-            if is_hovered {
-                base
-            } else if pane_is_active {
-                dim_color(base, 0.65)
-            } else {
-                dim_color(base, dim_factor)
-            }
-        };
-        draw_hline(buf, cell_y + m.cell_height.saturating_sub(2), link_color);
+        let link_color = link_underline_color(theme, is_hovered, pane_is_active, dim_factor);
+        draw_clipped_hline(
+            buf,
+            buf_width,
+            cell_y + m.cell_height.saturating_sub(2),
+            cell_x,
+            draw_w,
+            clip,
+            link_color,
+        );
+    }
+}
+
+fn draw_clipped_vline(
+    buf: &mut [u32],
+    buf_width: u32,
+    x: u32,
+    y: u32,
+    h: u32,
+    clip: [u32; 4],
+    color: u32,
+) {
+    let [rx, ry, rw, rh] = clip;
+    if x < rx || x >= rx + rw {
+        return;
+    }
+    let y_end = (y + h).min(ry + rh);
+    for sy in y.max(ry)..y_end {
+        let idx = (sy * buf_width + x) as usize;
+        if idx < buf.len() {
+            buf[idx] = color;
+        }
     }
 }
 
@@ -1015,38 +1084,13 @@ fn draw_cursor_overlay(
     m: &FontMetrics,
     clip: [u32; 4],
 ) {
-    let [rx, ry, rw, rh] = clip;
     match cursor_shape {
         CursorShape::Underline => {
             let ul_y = cell_y + m.cell_height.saturating_sub(2);
-            if ul_y < ry + rh {
-                for dx in 0..draw_w {
-                    let sx = cell_x + dx;
-                    if sx >= rx + rw {
-                        break;
-                    }
-                    let idx = (ul_y * buf_width + sx) as usize;
-                    if idx < buf.len() {
-                        buf[idx] = cur32;
-                    }
-                }
-            }
+            draw_clipped_hline(buf, buf_width, ul_y, cell_x, draw_w, clip, cur32);
         }
         CursorShape::Beam => {
-            for dy in 0..m.cell_height {
-                let sy = cell_y + dy;
-                if sy >= ry + rh {
-                    break;
-                }
-                let sx = cell_x;
-                if sx >= rx + rw {
-                    break;
-                }
-                let idx = (sy * buf_width + sx) as usize;
-                if idx < buf.len() {
-                    buf[idx] = cur32;
-                }
-            }
+            draw_clipped_vline(buf, buf_width, cell_x, cell_y, m.cell_height, clip, cur32);
         }
         CursorShape::Block => {}
     }
@@ -1079,6 +1123,36 @@ fn draw_scrollbar(
     fill_rect(buf, buf_width, scrollbar_x, thumb_y, 2, clamped_h, color);
 }
 
+#[allow(clippy::too_many_arguments)]
+fn blit_sixel_pixel(
+    buf: &mut [u32],
+    buf_width: u32,
+    img: &SixelImage,
+    px_i: u32,
+    py: u32,
+    sx: u32,
+    sy: u32,
+    clip: [u32; 4],
+) {
+    let [rx, ry, rw, rh] = clip;
+    let base = ((py * img.width + px_i) * 4) as usize;
+    if base + 3 >= img.pixels.len() {
+        return;
+    }
+    let a = img.pixels[base + 3];
+    if a == 0 || sx >= rx + rw || sy >= ry + rh {
+        return;
+    }
+    let idx = (sy * buf_width + sx) as usize;
+    if idx < buf.len() {
+        let r = img.pixels[base] as u32;
+        let g = img.pixels[base + 1] as u32;
+        let b = img.pixels[base + 2] as u32;
+        let src = (0xff_u32 << 24) | (r << 16) | (g << 8) | b;
+        buf[idx] = blend(buf[idx], src, a);
+    }
+}
+
 fn draw_images(
     buf: &mut [u32],
     buf_width: u32,
@@ -1086,33 +1160,22 @@ fn draw_images(
     images: &[SixelImage],
     m: &FontMetrics,
 ) {
-    let [rx, ry, rw, rh] = rect;
+    let [rx, ry, ..] = rect;
     for img in images {
         let img_x = rx + PANE_PADDING + img.col as u32 * m.cell_width;
         let img_y = ry + PANE_PADDING + img.row as u32 * m.cell_height;
         for py in 0..img.height {
             for px_i in 0..img.width {
-                let base = ((py * img.width + px_i) * 4) as usize;
-                if base + 3 >= img.pixels.len() {
-                    continue;
-                }
-                let a = img.pixels[base + 3];
-                if a == 0 {
-                    continue;
-                }
-                let r = img.pixels[base] as u32;
-                let g = img.pixels[base + 1] as u32;
-                let b = img.pixels[base + 2] as u32;
-                let sx = img_x + px_i;
-                let sy = img_y + py;
-                if sx >= rx + rw || sy >= ry + rh {
-                    continue;
-                }
-                let idx = (sy * buf_width + sx) as usize;
-                if idx < buf.len() {
-                    let src = (0xff_u32 << 24) | (r << 16) | (g << 8) | b;
-                    buf[idx] = blend(buf[idx], src, a);
-                }
+                blit_sixel_pixel(
+                    buf,
+                    buf_width,
+                    img,
+                    px_i,
+                    py,
+                    img_x + px_i,
+                    img_y + py,
+                    rect,
+                );
             }
         }
     }
