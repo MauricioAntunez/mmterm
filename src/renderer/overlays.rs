@@ -5,6 +5,50 @@ use super::text::{
     Renderer, STATUS_BAR_H, blend, color_u32, dim_buffer, draw_rect_border, fill_rect,
 };
 
+struct FieldRowLayout {
+    px: u32,
+    panel_w: u32,
+    pad: u32,
+    cw: u32,
+    fp: f32,
+    row_h: u32,
+    bg: u32,
+    border: u32,
+    sel: usize,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blit_glyph_badge(
+    buf: &mut [u32],
+    bw: u32,
+    bh: u32,
+    ox: u32,
+    oy: u32,
+    gw: u32,
+    gh: u32,
+    bitmap: &[u8],
+    badge_color: u32,
+    fg: u32,
+) {
+    for gy in 0..gh {
+        for gx in 0..gw {
+            let alpha = bitmap[(gy * gw + gx) as usize];
+            if alpha == 0 {
+                continue;
+            }
+            let sx = ox + gx;
+            let sy = oy + gy;
+            if sx >= bw || sy >= bh {
+                continue;
+            }
+            let idx = (sy * bw + sx) as usize;
+            if idx < buf.len() {
+                buf[idx] = blend(badge_color, fg, alpha);
+            }
+        }
+    }
+}
+
 impl Renderer {
     pub fn draw_config_panel(&mut self, buf: &mut [u32], bw: u32, bh: u32, panel: &ConfigPanel) {
         dim_buffer(buf);
@@ -65,12 +109,24 @@ impl Renderer {
         } else {
             0
         };
+        let layout = FieldRowLayout {
+            px,
+            panel_w,
+            pad,
+            cw,
+            fp,
+            row_h,
+            bg,
+            border,
+            sel,
+        };
+        let clip_y = py + panel_h - row_h * footer_rows;
 
         let content_y = py + row_h * 2;
         let mut draw_y = content_y;
 
         for (i, field) in panel.fields.iter().enumerate().skip(scroll_start) {
-            if draw_y + row_h > py + panel_h - row_h * footer_rows {
+            if draw_y + row_h > clip_y {
                 break;
             }
 
@@ -90,74 +146,12 @@ impl Renderer {
                     0xff_58_5b_70,
                 );
                 draw_y += section_h;
-                if draw_y + row_h > py + panel_h - row_h * footer_rows {
+                if draw_y + row_h > clip_y {
                     break;
                 }
             }
 
-            let is_sel = i == sel;
-            let is_editing = panel.editing && is_sel;
-
-            // Row background
-            let row_bg = if is_sel { 0xff_2a_2b_3d } else { bg };
-            fill_rect(buf, bw, px + 1, draw_y, panel_w - 2, row_h, row_bg);
-            if is_sel {
-                fill_rect(buf, bw, px + 1, draw_y, 1, row_h, border);
-            }
-
-            // Color swatch for hex fields
-            if matches!(field.kind, crate::tui_config::FieldKind::HexColor) {
-                let hex = panel.display_value(i);
-                if let Ok(n) = u32::from_str_radix(hex.trim_start_matches('#'), 16) {
-                    let swatch_color = 0xff_00_00_00 | n;
-                    fill_rect(
-                        buf,
-                        bw,
-                        px + panel_w - pad - 10,
-                        draw_y + 2,
-                        8,
-                        row_h - 4,
-                        swatch_color,
-                    );
-                }
-            }
-
-            let label_color = if is_sel { 0xff_f9_e2_af } else { 0xff_ba_c2_de };
-            let is_select = matches!(field.kind, crate::tui_config::FieldKind::Select(_));
-            let cursor_str = if is_editing { "_" } else { "" };
-            let value_display = if is_select && is_sel {
-                format!("\u{2190} {} \u{2192}", panel.display_value(i))
-            } else {
-                format!("{}{}", panel.display_value(i), cursor_str)
-            };
-            let text = format!("{:<18} {}", field.label, value_display);
-            self.draw_str(
-                buf,
-                bw,
-                bh,
-                px + pad + 4,
-                draw_y + 2,
-                &text,
-                fp,
-                false,
-                label_color,
-            );
-
-            if is_editing {
-                let ex = px + panel_w - cw * 7 - pad;
-                self.draw_str(
-                    buf,
-                    bw,
-                    bh,
-                    ex,
-                    draw_y + 2,
-                    "[editing]",
-                    fp,
-                    false,
-                    0xff_a6_e3_a1,
-                );
-            }
-
+            self.draw_config_field_row(buf, bw, bh, panel, i, draw_y, &layout);
             draw_y += row_h;
         }
 
@@ -199,6 +193,79 @@ impl Renderer {
             false,
             status_color,
         );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_config_field_row(
+        &mut self,
+        buf: &mut [u32],
+        bw: u32,
+        bh: u32,
+        panel: &ConfigPanel,
+        i: usize,
+        draw_y: u32,
+        l: &FieldRowLayout,
+    ) {
+        let field = &panel.fields[i];
+        let is_sel = i == l.sel;
+        let is_editing = panel.editing && is_sel;
+
+        let row_bg = if is_sel { 0xff_2a_2b_3d } else { l.bg };
+        fill_rect(buf, bw, l.px + 1, draw_y, l.panel_w - 2, l.row_h, row_bg);
+        if is_sel {
+            fill_rect(buf, bw, l.px + 1, draw_y, 1, l.row_h, l.border);
+        }
+
+        if matches!(field.kind, crate::tui_config::FieldKind::HexColor) {
+            let hex = panel.display_value(i);
+            if let Ok(n) = u32::from_str_radix(hex.trim_start_matches('#'), 16) {
+                fill_rect(
+                    buf,
+                    bw,
+                    l.px + l.panel_w - l.pad - 10,
+                    draw_y + 2,
+                    8,
+                    l.row_h - 4,
+                    0xff_00_00_00 | n,
+                );
+            }
+        }
+
+        let label_color = if is_sel { 0xff_f9_e2_af } else { 0xff_ba_c2_de };
+        let is_select = matches!(field.kind, crate::tui_config::FieldKind::Select(_));
+        let cursor_str = if is_editing { "_" } else { "" };
+        let value_display = if is_select && is_sel {
+            format!("\u{2190} {} \u{2192}", panel.display_value(i))
+        } else {
+            format!("{}{}", panel.display_value(i), cursor_str)
+        };
+        let text = format!("{:<18} {}", field.label, value_display);
+        self.draw_str(
+            buf,
+            bw,
+            bh,
+            l.px + l.pad + 4,
+            draw_y + 2,
+            &text,
+            l.fp,
+            false,
+            label_color,
+        );
+
+        if is_editing {
+            let ex = l.px + l.panel_w - l.cw * 7 - l.pad;
+            self.draw_str(
+                buf,
+                bw,
+                bh,
+                ex,
+                draw_y + 2,
+                "[editing]",
+                l.fp,
+                false,
+                0xff_a6_e3_a1,
+            );
+        }
     }
 
     /// `entries` is a slice of `(label, shortcut)` pairs — e.g. `("Split Vertical", "Ctrl+W s")`.
@@ -390,23 +457,7 @@ impl Renderer {
         for c in label.chars() {
             let (bitmap, gw, gh) = self.glyphs.rasterize(c, fp, true);
             let cy = y + baseline.saturating_sub(gh);
-            for gy in 0..gh {
-                for gx in 0..gw {
-                    let alpha = bitmap[(gy * gw + gx) as usize];
-                    if alpha == 0 {
-                        continue;
-                    }
-                    let sx = x + gx;
-                    let sy = cy + gy;
-                    if sx >= bw || sy >= bh {
-                        continue;
-                    }
-                    let idx = (sy * bw + sx) as usize;
-                    if idx < buf.len() {
-                        buf[idx] = blend(badge_color, fg, alpha);
-                    }
-                }
-            }
+            blit_glyph_badge(buf, bw, bh, x, cy, gw, gh, bitmap, badge_color, fg);
             x += char_w;
         }
     }

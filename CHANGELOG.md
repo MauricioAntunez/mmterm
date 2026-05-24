@@ -25,6 +25,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - extract `cell_char_at` helper from `selected_text()` and `make_char_cell` from `write_char()` in `terminal/grid.rs` — flattens deeply nested scroll/cell lookup logic
 - extract `try_dispatch_overlay_key`, `do_middle_click_paste` from `handle_keyboard_input/handle_mouse_input` in `app_event.rs`
 - extract `is_cell_cursor`, `is_cell_selected`, `draw_clipped_hline`, `draw_clipped_vline`, `link_underline_color`, `blit_sixel_pixel` from `renderer/text.rs` — reduces max per-function complexity from 30 → 19; simplifies `draw_cursor_overlay`, `draw_cell_decorations`, and `draw_images`
+- extract `poll_pane_bytes` from `drain_all()` in `main.rs` — eliminates triple-nested loop body
+- extract `parse_color_from_params` from `handle_sgr()` in `terminal/parser.rs` — reduces handle_sgr complexity from 28 → 12
+- extract `ctrl_dot_next_mode` from `handle_global_shortcuts()` in `input/keybindings.rs` — removes nested mode-cycle match
+- extract `draw_config_field_row` from `draw_config_panel()` in `renderer/overlays.rs` — reduces complexity from 32 → 12; introduce `FieldRowLayout` context struct
+- extract `blit_glyph_badge` from `draw_badge_label()` in `renderer/overlays.rs` — reduces complexity from 19 → 1
 
 ### Performance
 - replace `scroll_up`/`scroll_down` double-loop clones with `rotate_left`/`rotate_right`; reduces cost per scroll line ~3.3× (49 µs → 15 µs for 220×50); `seq 1 100000` drops from 4.4 s to 1.4 s

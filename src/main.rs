@@ -334,7 +334,6 @@ impl App {
     /// (exited pairs, has_more) — callers should request another redraw when
     /// has_more is true so the display stays live during high-throughput output.
     fn drain_all(&mut self) -> (Vec<(usize, usize)>, bool) {
-        const BYTES_PER_FRAME: usize = 256 * 1024;
         let active_tab = self.state.active_tab;
         let detect_urls = self.state.config.window.detect_urls;
         let mut exited = Vec::new();
@@ -343,25 +342,13 @@ impl App {
             let ids: Vec<usize> = tab.panes.keys().copied().collect();
             for id in ids {
                 let entry = tab.panes.get_mut(&id).unwrap();
-                let mut got_data = false;
-                let mut bytes_this_frame = 0;
-                loop {
-                    match entry.rx.try_recv() {
-                        Ok(bytes) => {
-                            got_data = true;
-                            bytes_this_frame += bytes.len();
-                            process_pane_bytes(bytes, entry, &mut self.state.clipboard);
-                            if bytes_this_frame >= BYTES_PER_FRAME {
-                                has_more = true;
-                                break;
-                            }
-                        }
-                        Err(crossbeam_channel::TryRecvError::Empty) => break,
-                        Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                            exited.push((tab_idx, id));
-                            break;
-                        }
-                    }
+                let (got_data, more, disconnected) =
+                    poll_pane_bytes(entry, &mut self.state.clipboard);
+                if more {
+                    has_more = true;
+                }
+                if disconnected {
+                    exited.push((tab_idx, id));
                 }
                 if got_data && detect_urls {
                     entry.pane.parser.grid.scan_urls();
@@ -1184,6 +1171,28 @@ impl ApplicationHandler for App {
                 }
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(next));
+        }
+    }
+}
+
+/// Poll one pane's PTY channel up to BYTES_PER_FRAME bytes.
+/// Returns (got_data, has_more, disconnected).
+fn poll_pane_bytes(entry: &mut PaneEntry, clipboard: &mut Option<Clipboard>) -> (bool, bool, bool) {
+    const BYTES_PER_FRAME: usize = 256 * 1024;
+    let mut got_data = false;
+    let mut bytes_this_frame = 0usize;
+    loop {
+        match entry.rx.try_recv() {
+            Ok(bytes) => {
+                got_data = true;
+                bytes_this_frame += bytes.len();
+                process_pane_bytes(bytes, entry, clipboard);
+                if bytes_this_frame >= BYTES_PER_FRAME {
+                    return (true, true, false);
+                }
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => return (got_data, false, false),
+            Err(crossbeam_channel::TryRecvError::Disconnected) => return (false, false, true),
         }
     }
 }

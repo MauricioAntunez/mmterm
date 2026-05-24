@@ -183,6 +183,20 @@ fn alt_action(key: &Key, ctrl: bool, shift: bool) -> Option<Action> {
     None
 }
 
+fn ctrl_dot_next_mode(mode: &InputMode) -> InputMode {
+    match mode {
+        InputMode::Insert => InputMode::Normal,
+        InputMode::Normal => InputMode::Visual {
+            start_col: 0,
+            start_row: 0,
+            cur_col: 0,
+            cur_row: 0,
+            anchored: false,
+        },
+        _ => InputMode::Insert,
+    }
+}
+
 fn handle_global_shortcuts(
     key: &Key,
     ctrl: bool,
@@ -201,18 +215,7 @@ fn handle_global_shortcuts(
 
     if ctrl && let Key::Character(s) = key {
         if s == "." {
-            let next = match mode {
-                InputMode::Insert => InputMode::Normal,
-                InputMode::Normal => InputMode::Visual {
-                    start_col: 0,
-                    start_row: 0,
-                    cur_col: 0,
-                    cur_row: 0,
-                    anchored: false,
-                },
-                _ => InputMode::Insert,
-            };
-            return Some(Action::SetMode(next));
+            return Some(Action::SetMode(ctrl_dot_next_mode(mode)));
         }
         if s == "\\" || s == "|" {
             return Some(Action::SetMode(InputMode::Normal));

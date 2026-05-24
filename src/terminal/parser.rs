@@ -163,30 +163,20 @@ impl Performer<'_> {
                 49 => self.grid.bg = self.grid.default_bg,
                 n @ 90..=97 => self.grid.fg = self.grid.palette[(n - 90 + 8) as usize],
                 n @ 100..=107 => self.grid.bg = self.grid.palette[(n - 100 + 8) as usize],
-                38 if i + 1 < ps.len() => match ps[i + 1] {
-                    5 if i + 2 < ps.len() => {
-                        self.grid.fg = color256(ps[i + 2] as u8, &self.grid.palette);
-                        i += 2;
+                38 => {
+                    if let Some((color, skip)) = parse_color_from_params(ps, i, &self.grid.palette)
+                    {
+                        self.grid.fg = color;
+                        i += skip;
                     }
-                    2 if i + 4 < ps.len() => {
-                        self.grid.fg =
-                            Color::rgb(ps[i + 2] as u8, ps[i + 3] as u8, ps[i + 4] as u8);
-                        i += 4;
+                }
+                48 => {
+                    if let Some((color, skip)) = parse_color_from_params(ps, i, &self.grid.palette)
+                    {
+                        self.grid.bg = color;
+                        i += skip;
                     }
-                    _ => {}
-                },
-                48 if i + 1 < ps.len() => match ps[i + 1] {
-                    5 if i + 2 < ps.len() => {
-                        self.grid.bg = color256(ps[i + 2] as u8, &self.grid.palette);
-                        i += 2;
-                    }
-                    2 if i + 4 < ps.len() => {
-                        self.grid.bg =
-                            Color::rgb(ps[i + 2] as u8, ps[i + 3] as u8, ps[i + 4] as u8);
-                        i += 4;
-                    }
-                    _ => {}
-                },
+                }
                 _ => {}
             }
             i += 1;
@@ -476,6 +466,22 @@ mod tests;
 #[cfg(test)]
 #[path = "scenario_test.rs"]
 mod scenarios;
+
+/// Parse an SGR 38/48 extended color from `ps[i..]`.
+/// Returns `Some((color, skip))` where `skip` is the number of extra indices consumed.
+fn parse_color_from_params(ps: &[u16], i: usize, palette: &[Color; 16]) -> Option<(Color, usize)> {
+    let sub = ps.get(i + 1)?;
+    match sub {
+        5 => ps.get(i + 2).map(|&n| (color256(n as u8, palette), 2)),
+        2 => {
+            let r = *ps.get(i + 2)? as u8;
+            let g = *ps.get(i + 3)? as u8;
+            let b = *ps.get(i + 4)? as u8;
+            Some((Color::rgb(r, g, b), 4))
+        }
+        _ => None,
+    }
+}
 
 fn color256(n: u8, palette: &[Color; 16]) -> Color {
     if n < 16 {
