@@ -199,6 +199,127 @@ impl AppState {
         self.config_panel = Some(ConfigPanel::from_config(&self.config));
     }
 
+    // ── Active pane accessors ────────────────────────────────────────────────
+
+    fn active_entry(&self) -> Option<&PaneEntry> {
+        if self.tabs.is_empty() {
+            return None;
+        }
+        let active = self.tab().active;
+        self.tab().panes.get(&active)
+    }
+
+    fn active_entry_mut(&mut self) -> Option<&mut PaneEntry> {
+        if self.tabs.is_empty() {
+            return None;
+        }
+        let active = self.tab().active;
+        self.tab_mut().panes.get_mut(&active)
+    }
+
+    fn active_grid_rows(&self) -> usize {
+        self.active_entry()
+            .map(|e| e.pane.parser.grid.rows)
+            .unwrap_or(1)
+    }
+
+    // ── Visual motion helper ─────────────────────────────────────────────────
+
+    fn move_visual_cursor(
+        &mut self,
+        motion: impl Fn(&crate::terminal::grid::Grid, usize, usize, usize) -> (usize, usize),
+    ) {
+        let InputMode::Visual {
+            start_col,
+            start_row,
+            cur_col,
+            cur_row,
+            anchored,
+        } = self.mode.clone()
+        else {
+            return;
+        };
+        let Some(entry) = self.active_entry() else {
+            return;
+        };
+        let (nc, nr) = motion(&entry.pane.parser.grid, entry.pane.scroll_offset, cur_col, cur_row);
+        self.mode = InputMode::Visual {
+            start_col,
+            start_row,
+            cur_col: nc,
+            cur_row: nr,
+            anchored,
+        };
+    }
+
+    // ── Clipboard helper ─────────────────────────────────────────────────────
+
+    fn copy_text_to_clipboard(&mut self, text: String) {
+        if text.is_empty() {
+            return;
+        }
+        if self.clipboard.is_none() {
+            self.clipboard = Clipboard::new().ok();
+        }
+        if let Some(cb) = self.clipboard.as_mut() {
+            let _ = cb.set_text(text);
+        }
+    }
+
+    // ── Visual scroll adjustment ─────────────────────────────────────────────
+
+    fn adjust_visual_scroll_up(&mut self, n: usize, grid_rows: usize) {
+        if let InputMode::Visual {
+            start_col,
+            start_row,
+            cur_col,
+            cur_row,
+            anchored,
+        } = self.mode.clone()
+        {
+            self.mode = InputMode::Visual {
+                start_col,
+                start_row: (start_row + n).min(grid_rows.saturating_sub(1)),
+                cur_col,
+                cur_row: (cur_row + n).min(grid_rows.saturating_sub(1)),
+                anchored,
+            };
+        }
+    }
+
+    fn adjust_visual_scroll_down(&mut self, n: usize) {
+        if let InputMode::Visual {
+            start_col,
+            start_row,
+            cur_col,
+            cur_row,
+            anchored,
+        } = self.mode.clone()
+        {
+            self.mode = InputMode::Visual {
+                start_col,
+                start_row: start_row.saturating_sub(n),
+                cur_col,
+                cur_row: cur_row.saturating_sub(n),
+                anchored,
+            };
+        }
+    }
+
+    // ── Cursor-position for entering Visual mode ─────────────────────────────
+
+    fn visual_start_pos(&self) -> (usize, usize) {
+        self.active_entry()
+            .map(|e| {
+                if e.pane.scroll_offset > 0 {
+                    (0, 0)
+                } else {
+                    (e.pane.parser.grid.cursor_col, e.pane.parser.grid.cursor_row)
+                }
+            })
+            .unwrap_or((0, 0))
+    }
+
     // ── Action dispatch ──────────────────────────────────────────────────────
     //
     // Handles all actions that are pure state mutations. Returns `AppEffect`s
@@ -214,11 +335,8 @@ impl AppState {
 
             // ── PTY / IO (delegated to App) ──────────────────────────────────
             Action::SendToPty(bytes) => {
-                if !self.tabs.is_empty() {
-                    let active = self.tab().active;
-                    if let Some(e) = self.tab_mut().panes.get_mut(&active) {
-                        e.pane.scroll_bottom();
-                    }
+                if let Some(e) = self.active_entry_mut() {
+                    e.pane.scroll_bottom();
                 }
                 vec![AppEffect::SendToPty(bytes)]
             }
@@ -226,22 +344,11 @@ impl AppState {
 
             // ── Mode ─────────────────────────────────────────────────────────
             Action::SetMode(new_mode) => {
-                let mode = if let InputMode::Visual { .. } = &new_mode {
+                self.mode = if let InputMode::Visual { .. } = &new_mode {
                     if matches!(self.mode, InputMode::Visual { .. }) {
                         new_mode
                     } else {
-                        let (col, row) = self
-                            .tabs
-                            .get(self.active_tab)
-                            .and_then(|t| t.panes.get(&t.active))
-                            .map(|e| {
-                                if e.pane.scroll_offset > 0 {
-                                    (0, 0)
-                                } else {
-                                    (e.pane.parser.grid.cursor_col, e.pane.parser.grid.cursor_row)
-                                }
-                            })
-                            .unwrap_or((0, 0));
+                        let (col, row) = self.visual_start_pos();
                         InputMode::Visual {
                             start_col: col,
                             start_row: row,
@@ -253,95 +360,46 @@ impl AppState {
                 } else {
                     new_mode
                 };
-                self.mode = mode;
                 vec![AppEffect::Redraw]
             }
 
             // ── Scroll ───────────────────────────────────────────────────────
             Action::ScrollUp(n) => {
-                if !self.tabs.is_empty() {
-                    let active = self.tab().active;
-                    let grid_rows = self
-                        .tab()
-                        .panes
-                        .get(&active)
-                        .map(|e| e.pane.parser.grid.rows)
-                        .unwrap_or(1);
-                    if let Some(e) = self.tab_mut().panes.get_mut(&active) {
-                        e.pane.scroll_up(n);
-                    }
-                    if let InputMode::Visual {
-                        start_col,
-                        start_row,
-                        cur_col,
-                        cur_row,
-                        anchored,
-                    } = self.mode.clone()
-                    {
-                        self.mode = InputMode::Visual {
-                            start_col,
-                            start_row: (start_row + n).min(grid_rows.saturating_sub(1)),
-                            cur_col,
-                            cur_row: (cur_row + n).min(grid_rows.saturating_sub(1)),
-                            anchored,
-                        };
-                    }
+                let grid_rows = self.active_grid_rows();
+                if let Some(e) = self.active_entry_mut() {
+                    e.pane.scroll_up(n);
                 }
+                self.adjust_visual_scroll_up(n, grid_rows);
                 vec![AppEffect::Redraw]
             }
             Action::ScrollDown(n) => {
-                if !self.tabs.is_empty() {
-                    let active = self.tab().active;
-                    if let Some(e) = self.tab_mut().panes.get_mut(&active) {
-                        e.pane.scroll_down(n);
-                    }
-                    if let InputMode::Visual {
-                        start_col,
-                        start_row,
-                        cur_col,
-                        cur_row,
-                        anchored,
-                    } = self.mode.clone()
-                    {
-                        self.mode = InputMode::Visual {
-                            start_col,
-                            start_row: start_row.saturating_sub(n),
-                            cur_col,
-                            cur_row: cur_row.saturating_sub(n),
-                            anchored,
-                        };
-                    }
+                if let Some(e) = self.active_entry_mut() {
+                    e.pane.scroll_down(n);
                 }
+                self.adjust_visual_scroll_down(n);
                 vec![AppEffect::Redraw]
             }
             Action::ScrollToTop => {
-                if !self.tabs.is_empty() {
-                    let active = self.tab().active;
-                    if let Some(e) = self.tab_mut().panes.get_mut(&active) {
-                        e.pane.scroll_top();
-                    }
+                if let Some(e) = self.active_entry_mut() {
+                    e.pane.scroll_top();
                 }
                 vec![AppEffect::Redraw]
             }
             Action::ScrollToBottom => {
-                if !self.tabs.is_empty() {
-                    let active = self.tab().active;
-                    if let Some(e) = self.tab_mut().panes.get_mut(&active) {
-                        e.pane.scroll_bottom();
-                    }
+                if let Some(e) = self.active_entry_mut() {
+                    e.pane.scroll_bottom();
                 }
                 vec![AppEffect::Redraw]
             }
             Action::ClearScrollback => {
+                if let Some(e) = self.active_entry_mut() {
+                    e.pane.parser.grid.scrollback.clear();
+                    e.pane.parser.grid.clear_screen();
+                    e.pane.parser.grid.cursor_col = 0;
+                    e.pane.parser.grid.cursor_row = 0;
+                    e.pane.scroll_bottom();
+                }
                 if !self.tabs.is_empty() {
-                    let active = self.tab().active;
-                    if let Some(e) = self.tab_mut().panes.get_mut(&active) {
-                        e.pane.parser.grid.scrollback.clear();
-                        e.pane.parser.grid.clear_screen();
-                        e.pane.parser.grid.cursor_col = 0;
-                        e.pane.parser.grid.cursor_row = 0;
-                        e.pane.scroll_bottom();
-                    }
                     self.search_matches.clear();
                 }
                 vec![AppEffect::Redraw]
@@ -357,26 +415,15 @@ impl AppState {
                     anchored: true,
                 } = self.mode.clone()
                 {
-                    if !self.tabs.is_empty() {
-                        let active = self.tab().active;
-                        if let Some(entry) = self.tab().panes.get(&active) {
-                            let scroll_offset = entry.pane.scroll_offset;
-                            let text = entry.pane.parser.grid.selected_text(
-                                start_col,
-                                start_row,
-                                cur_col,
-                                cur_row,
-                                scroll_offset,
-                            );
-                            if !text.is_empty() {
-                                if self.clipboard.is_none() {
-                                    self.clipboard = Clipboard::new().ok();
-                                }
-                                if let Some(cb) = self.clipboard.as_mut() {
-                                    let _ = cb.set_text(text);
-                                }
-                            }
-                        }
+                    if let Some(entry) = self.active_entry() {
+                        let text = entry.pane.parser.grid.selected_text(
+                            start_col,
+                            start_row,
+                            cur_col,
+                            cur_row,
+                            entry.pane.scroll_offset,
+                        );
+                        self.copy_text_to_clipboard(text);
                     }
                     self.mode = InputMode::Insert;
                 }
@@ -417,178 +464,77 @@ impl AppState {
                 vec![AppEffect::Redraw]
             }
             Action::VisualWordForward => {
-                if let InputMode::Visual {
-                    start_col,
-                    start_row,
-                    cur_col,
-                    cur_row,
-                    anchored,
-                } = self.mode.clone()
-                    && !self.tabs.is_empty()
-                {
-                    let active = self.tab().active;
-                    if let Some(entry) = self.tab().panes.get(&active) {
-                        let (nc, nr) = crate::motion::word_forward(
-                            &entry.pane.parser.grid,
-                            entry.pane.scroll_offset,
-                            cur_col,
-                            cur_row,
-                        );
-                        self.mode = InputMode::Visual {
-                            start_col,
-                            start_row,
-                            cur_col: nc,
-                            cur_row: nr,
-                            anchored,
-                        };
-                    }
-                }
+                self.move_visual_cursor(crate::motion::word_forward);
                 vec![AppEffect::Redraw]
             }
             Action::VisualWordBackward => {
-                if let InputMode::Visual {
-                    start_col,
-                    start_row,
-                    cur_col,
-                    cur_row,
-                    anchored,
-                } = self.mode.clone()
-                    && !self.tabs.is_empty()
-                {
-                    let active = self.tab().active;
-                    if let Some(entry) = self.tab().panes.get(&active) {
-                        let (nc, nr) = crate::motion::word_backward(
-                            &entry.pane.parser.grid,
-                            entry.pane.scroll_offset,
-                            cur_col,
-                            cur_row,
-                        );
-                        self.mode = InputMode::Visual {
-                            start_col,
-                            start_row,
-                            cur_col: nc,
-                            cur_row: nr,
-                            anchored,
-                        };
-                    }
-                }
+                self.move_visual_cursor(crate::motion::word_backward);
                 vec![AppEffect::Redraw]
             }
             Action::VisualWordEnd => {
-                if let InputMode::Visual {
-                    start_col,
-                    start_row,
-                    cur_col,
-                    cur_row,
-                    anchored,
-                } = self.mode.clone()
-                    && !self.tabs.is_empty()
-                {
-                    let active = self.tab().active;
-                    if let Some(entry) = self.tab().panes.get(&active) {
-                        let (nc, nr) = crate::motion::word_end(
-                            &entry.pane.parser.grid,
-                            entry.pane.scroll_offset,
-                            cur_col,
-                            cur_row,
-                        );
-                        self.mode = InputMode::Visual {
-                            start_col,
-                            start_row,
-                            cur_col: nc,
-                            cur_row: nr,
-                            anchored,
-                        };
-                    }
-                }
+                self.move_visual_cursor(crate::motion::word_end);
                 vec![AppEffect::Redraw]
             }
             Action::VisualYankLine => {
                 if let InputMode::Visual { cur_row, .. } = self.mode.clone() {
-                    if !self.tabs.is_empty() {
-                        let active = self.tab().active;
-                        if let Some(entry) = self.tab().panes.get(&active) {
-                            let cols = entry.pane.parser.grid.cols.saturating_sub(1);
-                            let text = entry.pane.parser.grid.selected_text(
-                                0,
-                                cur_row,
-                                cols,
-                                cur_row,
-                                entry.pane.scroll_offset,
-                            );
-                            if !text.is_empty() {
-                                if self.clipboard.is_none() {
-                                    self.clipboard = Clipboard::new().ok();
-                                }
-                                if let Some(cb) = self.clipboard.as_mut() {
-                                    let _ = cb.set_text(text);
-                                }
-                            }
-                        }
+                    if let Some(entry) = self.active_entry() {
+                        let cols = entry.pane.parser.grid.cols.saturating_sub(1);
+                        let text = entry.pane.parser.grid.selected_text(
+                            0,
+                            cur_row,
+                            cols,
+                            cur_row,
+                            entry.pane.scroll_offset,
+                        );
+                        self.copy_text_to_clipboard(text);
                     }
                     self.mode = InputMode::Insert;
                 }
                 vec![AppEffect::Redraw]
             }
             Action::VisualBoundaryUp(n) => {
-                if !self.tabs.is_empty() {
-                    let active = self.tab().active;
-                    let grid_rows = self
-                        .tab()
-                        .panes
-                        .get(&active)
-                        .map(|e| e.pane.parser.grid.rows)
-                        .unwrap_or(1);
-                    if let Some(e) = self.tab_mut().panes.get_mut(&active) {
-                        e.pane.scroll_up(n);
-                    }
-                    if let InputMode::Visual {
+                let grid_rows = self.active_grid_rows();
+                if let Some(e) = self.active_entry_mut() {
+                    e.pane.scroll_up(n);
+                }
+                if let InputMode::Visual {
+                    start_col,
+                    start_row,
+                    cur_col,
+                    anchored,
+                    ..
+                } = self.mode.clone()
+                {
+                    self.mode = InputMode::Visual {
                         start_col,
-                        start_row,
+                        start_row: (start_row + n).min(grid_rows.saturating_sub(1)),
                         cur_col,
+                        cur_row: 0,
                         anchored,
-                        ..
-                    } = self.mode.clone()
-                    {
-                        self.mode = InputMode::Visual {
-                            start_col,
-                            start_row: (start_row + n).min(grid_rows.saturating_sub(1)),
-                            cur_col,
-                            cur_row: 0,
-                            anchored,
-                        };
-                    }
+                    };
                 }
                 vec![AppEffect::Redraw]
             }
             Action::VisualBoundaryDown(n) => {
-                if !self.tabs.is_empty() {
-                    let active = self.tab().active;
-                    let grid_rows = self
-                        .tab()
-                        .panes
-                        .get(&active)
-                        .map(|e| e.pane.parser.grid.rows)
-                        .unwrap_or(1);
-                    if let Some(e) = self.tab_mut().panes.get_mut(&active) {
-                        e.pane.scroll_down(n);
-                    }
-                    if let InputMode::Visual {
+                let grid_rows = self.active_grid_rows();
+                if let Some(e) = self.active_entry_mut() {
+                    e.pane.scroll_down(n);
+                }
+                if let InputMode::Visual {
+                    start_col,
+                    start_row,
+                    cur_col,
+                    anchored,
+                    ..
+                } = self.mode.clone()
+                {
+                    self.mode = InputMode::Visual {
                         start_col,
-                        start_row,
+                        start_row: start_row.saturating_sub(n),
                         cur_col,
+                        cur_row: grid_rows.saturating_sub(1),
                         anchored,
-                        ..
-                    } = self.mode.clone()
-                    {
-                        self.mode = InputMode::Visual {
-                            start_col,
-                            start_row: start_row.saturating_sub(n),
-                            cur_col,
-                            cur_row: grid_rows.saturating_sub(1),
-                            anchored,
-                        };
-                    }
+                    };
                 }
                 vec![AppEffect::Redraw]
             }
@@ -741,7 +687,8 @@ impl AppState {
             }
             Action::ZoomPane => {
                 if !self.tabs.is_empty() {
-                    self.tab_mut().zoomed = !self.tab().zoomed;
+                    let zoomed = self.tab().zoomed;
+                    self.tab_mut().zoomed = !zoomed;
                 }
                 vec![AppEffect::Redraw]
             }
@@ -1426,5 +1373,159 @@ mod tests {
         // 1 tab, 1 pane, restore_session = false → quit immediately
         let effects = s.dispatch_action(Action::Quit);
         assert!(effects.iter().any(|e| matches!(e, AppEffect::Quit)));
+    }
+
+    #[test]
+    fn dispatch_visual_word_backward_moves_cursor() {
+        let mut s = make_state_with_pane();
+        let active = s.tab().active;
+        if let Some(e) = s.tab_mut().panes.get_mut(&active) {
+            for c in "hello world".chars() {
+                e.pane.parser.grid.write_char(c);
+            }
+        }
+        s.mode = InputMode::Visual {
+            start_col: 0,
+            start_row: 0,
+            cur_col: 6,
+            cur_row: 0,
+            anchored: false,
+        };
+        s.dispatch_action(Action::VisualWordBackward);
+        if let InputMode::Visual {
+            cur_col, cur_row, ..
+        } = s.mode
+        {
+            assert!(
+                cur_col < 6 || cur_row == 0,
+                "cursor should have moved backward"
+            );
+        } else {
+            panic!("expected Visual mode");
+        }
+    }
+
+    #[test]
+    fn dispatch_visual_word_end_moves_cursor_forward() {
+        let mut s = make_state_with_pane();
+        let active = s.tab().active;
+        if let Some(e) = s.tab_mut().panes.get_mut(&active) {
+            for c in "hello world".chars() {
+                e.pane.parser.grid.write_char(c);
+            }
+        }
+        s.mode = InputMode::Visual {
+            start_col: 0,
+            start_row: 0,
+            cur_col: 0,
+            cur_row: 0,
+            anchored: false,
+        };
+        s.dispatch_action(Action::VisualWordEnd);
+        if let InputMode::Visual { cur_col, .. } = s.mode {
+            assert!(cur_col > 0, "cursor should have moved to word end");
+        } else {
+            panic!("expected Visual mode");
+        }
+    }
+
+    #[test]
+    fn dispatch_visual_boundary_down_scrolls_pane() {
+        let mut s = make_state_with_pane();
+        let active = s.tab().active;
+        // Add scrollback and scroll into it so scroll_down has room
+        if let Some(e) = s.tab_mut().panes.get_mut(&active) {
+            for _ in 0..30 {
+                e.pane.parser.grid.scroll_up(1);
+            }
+            e.pane.scroll_offset = 10;
+        }
+        let grid_rows = s
+            .tab()
+            .panes
+            .get(&active)
+            .map(|e| e.pane.parser.grid.rows)
+            .unwrap_or(1);
+        s.mode = InputMode::Visual {
+            start_col: 0,
+            start_row: 5,
+            cur_col: 0,
+            cur_row: 5,
+            anchored: true,
+        };
+        s.dispatch_action(Action::VisualBoundaryDown(2));
+        let off = s
+            .tab()
+            .panes
+            .get(&active)
+            .map(|e| e.pane.scroll_offset)
+            .unwrap_or(99);
+        assert!(off < 10, "scroll_down should have reduced offset");
+        if let InputMode::Visual { cur_row, .. } = s.mode {
+            assert_eq!(
+                cur_row,
+                grid_rows.saturating_sub(1),
+                "cursor should be at last row"
+            );
+        } else {
+            panic!("expected Visual mode");
+        }
+    }
+
+    #[test]
+    fn dispatch_scroll_up_adjusts_visual_coords() {
+        let mut s = make_state_with_pane();
+        let active = s.tab().active;
+        if let Some(e) = s.tab_mut().panes.get_mut(&active) {
+            for _ in 0..30 {
+                e.pane.parser.grid.scroll_up(1);
+            }
+        }
+        s.mode = InputMode::Visual {
+            start_col: 0,
+            start_row: 2,
+            cur_col: 0,
+            cur_row: 3,
+            anchored: true,
+        };
+        s.dispatch_action(Action::ScrollUp(2));
+        if let InputMode::Visual {
+            start_row, cur_row, ..
+        } = s.mode
+        {
+            assert_eq!(start_row, 4);
+            assert_eq!(cur_row, 5);
+        } else {
+            panic!("expected Visual mode");
+        }
+    }
+
+    #[test]
+    fn dispatch_scroll_down_adjusts_visual_coords() {
+        let mut s = make_state_with_pane();
+        let active = s.tab().active;
+        if let Some(e) = s.tab_mut().panes.get_mut(&active) {
+            for _ in 0..10 {
+                e.pane.parser.grid.scroll_up(1);
+            }
+            e.pane.scroll_offset = 5;
+        }
+        s.mode = InputMode::Visual {
+            start_col: 0,
+            start_row: 4,
+            cur_col: 0,
+            cur_row: 6,
+            anchored: true,
+        };
+        s.dispatch_action(Action::ScrollDown(2));
+        if let InputMode::Visual {
+            start_row, cur_row, ..
+        } = s.mode
+        {
+            assert_eq!(start_row, 2);
+            assert_eq!(cur_row, 4);
+        } else {
+            panic!("expected Visual mode");
+        }
     }
 }

@@ -245,8 +245,7 @@ impl Renderer {
                     } else {
                         (er, ec, sr, sc)
                     };
-                    (row > r0 || (row == r0 && col >= c0))
-                        && (row < r1 || (row == r1 && col <= c1))
+                    (row > r0 || (row == r0 && col >= c0)) && (row < r1 || (row == r1 && col <= c1))
                 });
 
                 let (in_match, is_current_match) = search_highlight(
@@ -282,20 +281,48 @@ impl Renderer {
 
                 if cell.c != ' ' && (!cell.blink || pane.blink_visible) {
                     self.draw_glyph(
-                        buf, buf_width, cell, cell_x, cell_y, draw_w, fg, bg32,
-                        pane.is_active, dim_factor, m, pane.rect,
+                        buf,
+                        buf_width,
+                        cell,
+                        cell_x,
+                        cell_y,
+                        draw_w,
+                        fg,
+                        bg32,
+                        pane.is_active,
+                        dim_factor,
+                        m,
+                        pane.rect,
                     );
                 }
 
                 draw_cell_decorations(
-                    buf, buf_width, cell, cell_x, cell_y, draw_w, fg, m, pane.rect,
-                    theme, pane.is_active, dim_factor, pane.hovered_url,
+                    buf,
+                    buf_width,
+                    cell,
+                    cell_x,
+                    cell_y,
+                    draw_w,
+                    fg,
+                    m,
+                    pane.rect,
+                    theme,
+                    pane.is_active,
+                    dim_factor,
+                    pane.hovered_url,
                 );
 
                 if is_cursor && pane.cursor_shape != CursorShape::Block {
                     draw_cursor_overlay(
-                        buf, buf_width, pane.cursor_shape, cell_x, cell_y,
-                        draw_w, color_u32(grid.cursor_color), m, pane.rect,
+                        buf,
+                        buf_width,
+                        pane.cursor_shape,
+                        cell_x,
+                        cell_y,
+                        draw_w,
+                        color_u32(grid.cursor_color),
+                        m,
+                        pane.rect,
                     );
                 }
 
@@ -305,7 +332,13 @@ impl Renderer {
         }
 
         draw_scrollbar(
-            buf, buf_width, pane.rect, grid.rows, sb_len, pane.scroll_offset, theme,
+            buf,
+            buf_width,
+            pane.rect,
+            grid.rows,
+            sb_len,
+            pane.scroll_offset,
+            theme,
         );
 
         // Images are only shown at live view; col/row coords are meaningless when scrolled.

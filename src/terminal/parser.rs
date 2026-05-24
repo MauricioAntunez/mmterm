@@ -317,8 +317,14 @@ impl Perform for Performer<'_> {
             'd' => self.grid.cursor_row = (p0.saturating_sub(1) as usize).min(self.grid.rows - 1),
             // DSR: respond with cursor position (CSI 6 n → CSI row;col R)
             'n' if p0 == 6 => {
-                let resp = format!("\x1b[{};{}R", self.grid.cursor_row + 1, self.grid.cursor_col + 1);
-                self.grid.pending_responses.extend_from_slice(resp.as_bytes());
+                let resp = format!(
+                    "\x1b[{};{}R",
+                    self.grid.cursor_row + 1,
+                    self.grid.cursor_col + 1
+                );
+                self.grid
+                    .pending_responses
+                    .extend_from_slice(resp.as_bytes());
             }
             // DA: device attributes (CSI c → CSI ?1;0c)
             'c' if p0 == 0 => self.grid.pending_responses.extend_from_slice(b"\x1b[?1;0c"),
@@ -333,8 +339,12 @@ impl Perform for Performer<'_> {
             // Set scroll region
             'r' => {
                 let top = (p0.saturating_sub(1) as usize).min(self.grid.rows - 1);
-                let bot = if p1 == 0 { self.grid.rows - 1 } else { (p1 - 1) as usize }
-                    .min(self.grid.rows - 1);
+                let bot = if p1 == 0 {
+                    self.grid.rows - 1
+                } else {
+                    (p1 - 1) as usize
+                }
+                .min(self.grid.rows - 1);
                 self.grid.scroll_top = top;
                 self.grid.scroll_bottom = bot;
                 self.grid.cursor_row = top;
