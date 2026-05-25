@@ -1889,3 +1889,117 @@ fn ctrl_shift_p_not_triggered_without_shift() {
     let a = handle_key_inner(&char_key("p"), true, false, false, &insert(), 80, 24, false);
     assert!(!matches!(a, Action::OpenCommandPalette));
 }
+
+// ── pick_seq ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn pick_seq_app_true_returns_app_seq() {
+    assert_eq!(pick_seq(true, b"\x1bOA", b"\x1b[A"), b"\x1bOA");
+}
+
+#[test]
+fn pick_seq_app_false_returns_vt_seq() {
+    assert_eq!(pick_seq(false, b"\x1bOA", b"\x1b[A"), b"\x1b[A");
+}
+
+// ── cursor_seq ───────────────────────────────────────────────────────────────
+
+#[test]
+fn cursor_seq_arrow_up_vt() {
+    assert_eq!(
+        cursor_seq(&named(NamedKey::ArrowUp), false),
+        Some(b"\x1b[A".as_ref())
+    );
+}
+
+#[test]
+fn cursor_seq_arrow_up_app() {
+    assert_eq!(
+        cursor_seq(&named(NamedKey::ArrowUp), true),
+        Some(b"\x1bOA".as_ref())
+    );
+}
+
+#[test]
+fn cursor_seq_unknown_returns_none() {
+    assert!(cursor_seq(&named(NamedKey::F1), false).is_none());
+}
+
+// ── handle_ctrl_only ─────────────────────────────────────────────────────────
+
+#[test]
+fn handle_ctrl_only_w_returns_ctrl_w_prefix() {
+    assert!(matches!(
+        handle_ctrl_only(&char_key("w"), false, &insert()),
+        Some(Action::CtrlWPrefix)
+    ));
+}
+
+#[test]
+fn handle_ctrl_only_q_returns_quit() {
+    assert!(matches!(
+        handle_ctrl_only(&char_key("q"), false, &insert()),
+        Some(Action::Quit)
+    ));
+}
+
+#[test]
+fn handle_ctrl_only_c_in_visual_returns_copy() {
+    let mode = InputMode::Visual {
+        start_col: 0,
+        start_row: 0,
+        cur_col: 0,
+        cur_row: 0,
+        anchored: true,
+    };
+    assert!(matches!(
+        handle_ctrl_only(&char_key("c"), false, &mode),
+        Some(Action::Copy)
+    ));
+}
+
+#[test]
+fn handle_ctrl_only_c_in_insert_not_copy() {
+    assert!(!matches!(
+        handle_ctrl_only(&char_key("c"), false, &insert()),
+        Some(Action::Copy)
+    ));
+}
+
+// ── visual_up_action / visual_down_action ────────────────────────────────────
+
+#[test]
+fn visual_up_at_top_returns_boundary_up() {
+    let move_to = |_c: usize, _r: usize| Action::None;
+    assert!(matches!(
+        visual_up_action(0, 0, &move_to),
+        Action::VisualBoundaryUp(1)
+    ));
+}
+
+#[test]
+fn visual_up_not_at_top_moves_cursor() {
+    let move_to = |_c: usize, r: usize| Action::ScrollUp(r);
+    assert!(matches!(
+        visual_up_action(0, 5, &move_to),
+        Action::ScrollUp(4)
+    ));
+}
+
+#[test]
+fn visual_down_at_bottom_returns_boundary_down() {
+    let move_to = |_c: usize, _r: usize| Action::None;
+    assert!(matches!(
+        visual_down_action(0, 10, 10, &move_to),
+        Action::VisualBoundaryDown(1)
+    ));
+}
+
+#[test]
+fn visual_down_not_at_bottom_moves_cursor() {
+    let move_to = |_c: usize, r: usize| Action::ScrollDown(r);
+    assert!(matches!(
+        visual_down_action(0, 5, 10, &move_to),
+        Action::ScrollDown(6)
+    ));
+}

@@ -215,6 +215,21 @@ fn shift_scroll_action(key: &Key, grid_rows: usize) -> Option<Action> {
     }
 }
 
+fn handle_ctrl_only(key: &Key, alt: bool, mode: &InputMode) -> Option<Action> {
+    if let Key::Character(s) = key {
+        if s.eq_ignore_ascii_case("w") {
+            return Some(Action::CtrlWPrefix);
+        }
+        if let Some(a) = ctrl_special_char_action(s, mode) {
+            return Some(a);
+        }
+        if s.eq_ignore_ascii_case("c") && matches!(mode, InputMode::Visual { .. }) {
+            return Some(Action::Copy);
+        }
+    }
+    ctrl_char_action(key, alt)
+}
+
 fn handle_global_shortcuts(
     key: &Key,
     ctrl: bool,
@@ -223,49 +238,20 @@ fn handle_global_shortcuts(
     mode: &InputMode,
     grid_rows: usize,
 ) -> Option<Action> {
-    if ctrl
-        && !shift
-        && let Key::Character(s) = key
-        && s.eq_ignore_ascii_case("w")
-    {
-        return Some(Action::CtrlWPrefix);
-    }
-
-    if ctrl
-        && let Key::Character(s) = key
-        && let Some(action) = ctrl_special_char_action(s, mode)
-    {
-        return Some(action);
-    }
-
     if ctrl && shift {
         return ctrl_shift_action(key);
     }
-
-    if ctrl
-        && !shift
-        && let Key::Character(s) = key
-        && s.eq_ignore_ascii_case("c")
-        && matches!(mode, InputMode::Visual { .. })
-    {
-        return Some(Action::Copy);
+    if ctrl {
+        return handle_ctrl_only(key, alt, mode);
     }
-
-    if ctrl && !shift {
-        return ctrl_char_action(key, alt);
+    if shift {
+        if let Some(a) = shift_scroll_action(key, grid_rows) {
+            return Some(a);
+        }
     }
-
-    if shift
-        && !ctrl
-        && let Some(action) = shift_scroll_action(key, grid_rows)
-    {
-        return Some(action);
-    }
-
     if alt {
-        return alt_action(key, ctrl, shift);
+        return alt_action(key, false, shift);
     }
-
     None
 }
 
@@ -325,50 +311,18 @@ fn encode_alt_key(key: &Key) -> Option<Action> {
     Some(Action::SendToPty(bytes))
 }
 
+fn pick_seq(app: bool, app_seq: &'static [u8], vt_seq: &'static [u8]) -> &'static [u8] {
+    if app { app_seq } else { vt_seq }
+}
+
 fn cursor_seq(key: &Key, app: bool) -> Option<&'static [u8]> {
     Some(match key {
-        Key::Named(NamedKey::ArrowUp) => {
-            if app {
-                b"\x1bOA"
-            } else {
-                b"\x1b[A"
-            }
-        }
-        Key::Named(NamedKey::ArrowDown) => {
-            if app {
-                b"\x1bOB"
-            } else {
-                b"\x1b[B"
-            }
-        }
-        Key::Named(NamedKey::ArrowRight) => {
-            if app {
-                b"\x1bOC"
-            } else {
-                b"\x1b[C"
-            }
-        }
-        Key::Named(NamedKey::ArrowLeft) => {
-            if app {
-                b"\x1bOD"
-            } else {
-                b"\x1b[D"
-            }
-        }
-        Key::Named(NamedKey::Home) => {
-            if app {
-                b"\x1bOH"
-            } else {
-                b"\x1b[1~"
-            }
-        }
-        Key::Named(NamedKey::End) => {
-            if app {
-                b"\x1bOF"
-            } else {
-                b"\x1b[4~"
-            }
-        }
+        Key::Named(NamedKey::ArrowUp) => pick_seq(app, b"\x1bOA", b"\x1b[A"),
+        Key::Named(NamedKey::ArrowDown) => pick_seq(app, b"\x1bOB", b"\x1b[B"),
+        Key::Named(NamedKey::ArrowRight) => pick_seq(app, b"\x1bOC", b"\x1b[C"),
+        Key::Named(NamedKey::ArrowLeft) => pick_seq(app, b"\x1bOD", b"\x1b[D"),
+        Key::Named(NamedKey::Home) => pick_seq(app, b"\x1bOH", b"\x1b[1~"),
+        Key::Named(NamedKey::End) => pick_seq(app, b"\x1bOF", b"\x1b[4~"),
         _ => return None,
     })
 }
@@ -445,6 +399,31 @@ fn handle_normal(key: &Key, grid_rows: usize) -> Action {
     }
 }
 
+fn visual_up_action(
+    cur_col: usize,
+    cur_row: usize,
+    move_to: &impl Fn(usize, usize) -> Action,
+) -> Action {
+    if cur_row == 0 {
+        Action::VisualBoundaryUp(1)
+    } else {
+        move_to(cur_col, cur_row - 1)
+    }
+}
+
+fn visual_down_action(
+    cur_col: usize,
+    cur_row: usize,
+    rows: usize,
+    move_to: &impl Fn(usize, usize) -> Action,
+) -> Action {
+    if cur_row == rows {
+        Action::VisualBoundaryDown(1)
+    } else {
+        move_to(cur_col, cur_row + 1)
+    }
+}
+
 fn handle_visual(
     key: &Key,
     (start_col, start_row): (usize, usize),
@@ -470,39 +449,15 @@ fn handle_visual(
         Key::Named(NamedKey::Escape) => Action::SetMode(InputMode::Insert),
         Key::Named(NamedKey::ArrowLeft) => move_to(cur_col.saturating_sub(1), cur_row),
         Key::Named(NamedKey::ArrowRight) => move_to((cur_col + 1).min(cols), cur_row),
-        Key::Named(NamedKey::ArrowUp) => {
-            if cur_row == 0 {
-                Action::VisualBoundaryUp(1)
-            } else {
-                move_to(cur_col, cur_row - 1)
-            }
-        }
-        Key::Named(NamedKey::ArrowDown) => {
-            if cur_row == rows {
-                Action::VisualBoundaryDown(1)
-            } else {
-                move_to(cur_col, cur_row + 1)
-            }
-        }
+        Key::Named(NamedKey::ArrowUp) => visual_up_action(cur_col, cur_row, &move_to),
+        Key::Named(NamedKey::ArrowDown) => visual_down_action(cur_col, cur_row, rows, &move_to),
         Key::Named(NamedKey::Home) => move_to(0, cur_row),
         Key::Named(NamedKey::End) => move_to(cols, cur_row),
         Key::Character(s) => match s.as_str() {
             "h" => move_to(cur_col.saturating_sub(1), cur_row),
             "l" => move_to((cur_col + 1).min(cols), cur_row),
-            "k" => {
-                if cur_row == 0 {
-                    Action::VisualBoundaryUp(1)
-                } else {
-                    move_to(cur_col, cur_row - 1)
-                }
-            }
-            "j" => {
-                if cur_row == rows {
-                    Action::VisualBoundaryDown(1)
-                } else {
-                    move_to(cur_col, cur_row + 1)
-                }
-            }
+            "k" => visual_up_action(cur_col, cur_row, &move_to),
+            "j" => visual_down_action(cur_col, cur_row, rows, &move_to),
             "0" => move_to(0, cur_row),
             "$" => move_to(cols, cur_row),
             "g" => move_to(cur_col, 0),
