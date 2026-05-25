@@ -1,4 +1,5 @@
 use super::*;
+use std::time::{Duration, Instant};
 
 /// Builds an EventLoop that works from any thread (needed for tests).
 /// Falls back gracefully if no display is available.
@@ -107,4 +108,96 @@ fn debug_log_path_format() {
     assert!(path.starts_with(&dir));
     assert!(path.ends_with(".log"));
     assert!(path.contains("debug-"));
+}
+
+#[test]
+fn next_bell_wakeup_no_tabs_returns_default() {
+    let default = Instant::now() + Duration::from_secs(10);
+    let result = next_bell_wakeup(&[], default);
+    assert_eq!(result, default);
+}
+
+#[test]
+fn next_bell_wakeup_no_active_bell_returns_default() {
+    use crate::app_state::TabState;
+    use crate::renderer::FontMetrics;
+    use crate::renderer::Renderer;
+    use crate::ui::Layout;
+    use std::collections::HashMap;
+
+    let mut r = Renderer::new("JetBrainsMono", 16.0);
+    let metrics = r.make_metrics(16.0);
+    let tab = TabState {
+        panes: HashMap::new(),
+        layout: Layout::new(0, 800, 600),
+        active: 0,
+        metrics,
+        name: None,
+        zoomed: false,
+        has_activity: false,
+        bell_flash_until: None,
+    };
+    let default = Instant::now() + Duration::from_secs(10);
+    let result = next_bell_wakeup(&[tab], default);
+    assert_eq!(result, default);
+}
+
+#[test]
+fn next_bell_wakeup_active_bell_returns_earlier() {
+    use crate::app_state::TabState;
+    use crate::renderer::FontMetrics;
+    use crate::renderer::Renderer;
+    use crate::ui::Layout;
+    use std::collections::HashMap;
+
+    let mut r = Renderer::new("JetBrainsMono", 16.0);
+    let metrics = r.make_metrics(16.0);
+    let bell_expiry = Instant::now() + Duration::from_millis(50);
+    let tab = TabState {
+        panes: HashMap::new(),
+        layout: Layout::new(0, 800, 600),
+        active: 0,
+        metrics,
+        name: None,
+        zoomed: false,
+        has_activity: false,
+        bell_flash_until: Some(bell_expiry),
+    };
+    let default = Instant::now() + Duration::from_secs(10);
+    let result = next_bell_wakeup(&[tab], default);
+    assert_eq!(
+        result, bell_expiry,
+        "should return the bell expiry when it's earlier than default"
+    );
+}
+
+#[test]
+fn next_bell_wakeup_returns_earliest_of_multiple() {
+    use crate::app_state::TabState;
+    use crate::renderer::Renderer;
+    use crate::ui::Layout;
+    use std::collections::HashMap;
+
+    let mut r = Renderer::new("JetBrainsMono", 16.0);
+    let metrics = r.make_metrics(16.0);
+    let expiry1 = Instant::now() + Duration::from_millis(200);
+    let expiry2 = Instant::now() + Duration::from_millis(50);
+
+    let make_tab = |expiry: Option<Instant>, metrics: crate::renderer::FontMetrics| TabState {
+        panes: HashMap::new(),
+        layout: Layout::new(0, 800, 600),
+        active: 0,
+        metrics,
+        name: None,
+        zoomed: false,
+        has_activity: false,
+        bell_flash_until: expiry,
+    };
+
+    let tab1 = make_tab(Some(expiry1), metrics.clone());
+    let tab2 = make_tab(Some(expiry2), metrics);
+
+    let default = Instant::now() + Duration::from_secs(10);
+    let result = next_bell_wakeup(&[tab1, tab2], default);
+    assert_eq!(result, expiry2, "should return the earliest bell expiry");
 }

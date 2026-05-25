@@ -2,6 +2,7 @@ mod app_event;
 mod app_state;
 mod command_palette;
 mod config;
+mod drain;
 mod font;
 mod geometry;
 mod input;
@@ -26,14 +27,12 @@ pub use app_state::{AppEffect, AppState, PaneEntry, TabState};
 mod tests;
 
 use arboard::Clipboard;
-use base64::Engine as _;
 use chrono::Local;
 use config::Config;
 use crossbeam_channel::unbounded;
 use input::InputMode;
 use renderer::{PaneView, Renderer};
 use std::collections::HashMap;
-use std::io::Write as _;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -333,35 +332,6 @@ impl App {
     /// Drain pending PTY output up to a per-frame byte budget. Returns
     /// (exited pairs, has_more) — callers should request another redraw when
     /// has_more is true so the display stays live during high-throughput output.
-    fn drain_all(&mut self) -> (Vec<(usize, usize)>, bool) {
-        let active_tab = self.state.active_tab;
-        let detect_urls = self.state.config.window.detect_urls;
-        let mut exited = Vec::new();
-        let mut has_more = false;
-        for (tab_idx, tab) in self.state.tabs.iter_mut().enumerate() {
-            let ids: Vec<usize> = tab.panes.keys().copied().collect();
-            for id in ids {
-                let (got_data, more, disconnected) = {
-                    let entry = tab.panes.get_mut(&id).unwrap();
-                    poll_pane_bytes(entry, &mut self.state.clipboard)
-                };
-                if more {
-                    has_more = true;
-                }
-                if disconnected {
-                    exited.push((tab_idx, id));
-                }
-                update_tab_after_pane_poll(tab, id, got_data, detect_urls, tab_idx != active_tab);
-            }
-        }
-        if has_more {
-            self.last_pty_data = Some(Instant::now());
-        } else {
-            self.last_pty_data = None;
-        }
-        (exited, has_more)
-    }
-
     fn close_pane_on_tab(&mut self, tab_idx: usize, pane_id: usize, event_loop: &ActiveEventLoop) {
         if tab_idx >= self.state.tabs.len() {
             return;
@@ -577,30 +547,40 @@ impl App {
                 }
                 return;
             }
-            let active = self.tab().active;
-            if let Some(entry) = self.tab().panes.get(&active) {
-                let scroll_offset = entry.pane.scroll_offset;
-                let text = entry.pane.parser.grid.selected_text(
-                    start_col,
-                    start_row,
-                    cur_col,
-                    cur_row,
-                    scroll_offset,
-                );
-                if !text.is_empty() {
-                    let cb = self
-                        .state
-                        .clipboard
-                        .get_or_insert_with(|| Clipboard::new().expect("clipboard unavailable"));
-                    match cb.set_text(text) {
-                        Ok(()) => log::info!("Copied mouse selection to clipboard"),
-                        Err(e) => log::warn!("Clipboard write failed: {e}"),
-                    }
-                }
-            }
+            self.copy_selection_to_clipboard(start_col, start_row, cur_col, cur_row);
         }
         if let Some(w) = &self.window {
             w.request_redraw();
+        }
+    }
+
+    fn copy_selection_to_clipboard(
+        &mut self,
+        start_col: usize,
+        start_row: usize,
+        cur_col: usize,
+        cur_row: usize,
+    ) {
+        let active = self.tab().active;
+        if let Some(entry) = self.tab().panes.get(&active) {
+            let scroll_offset = entry.pane.scroll_offset;
+            let text = entry.pane.parser.grid.selected_text(
+                start_col,
+                start_row,
+                cur_col,
+                cur_row,
+                scroll_offset,
+            );
+            if !text.is_empty() {
+                let cb = self
+                    .state
+                    .clipboard
+                    .get_or_insert_with(|| Clipboard::new().expect("clipboard unavailable"));
+                match cb.set_text(text) {
+                    Ok(()) => log::info!("Copied mouse selection to clipboard"),
+                    Err(e) => log::warn!("Clipboard write failed: {e}"),
+                }
+            }
         }
     }
 
@@ -1013,6 +993,28 @@ impl App {
 
         buf.present().unwrap();
     }
+
+    fn handle_focus_changed(&mut self, gained: bool) {
+        if gained {
+            self.state.swallow_next_tab = true;
+        } else {
+            self.modifiers = Modifiers::default();
+        }
+        let active_tab = self.state.active_tab;
+        let tab_active = self.state.tabs[active_tab].active;
+        self.send_pane_focus_seq(active_tab, tab_active, gained);
+    }
+
+    fn handle_redraw_requested(&mut self, event_loop: &ActiveEventLoop) {
+        let (exited, has_more) = self.drain_all();
+        for (tab_idx, pane_id) in exited {
+            self.close_pane_on_tab(tab_idx, pane_id, event_loop);
+        }
+        self.redraw();
+        if has_more && let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
 }
 
 impl ApplicationHandler for App {
@@ -1068,19 +1070,7 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::Focused(gained) => {
-                if gained {
-                    // The Tab from the Alt+Tab that brought focus back may
-                    // arrive as a plain Tab (Alt already released by the WM).
-                    // Mark it to be swallowed so it isn't sent to the PTY.
-                    self.state.swallow_next_tab = true;
-                } else {
-                    // Clear modifier state — the WM won't send release events
-                    // for keys held when focus leaves.
-                    self.modifiers = Modifiers::default();
-                }
-                let active_tab = self.state.active_tab;
-                let tab_active = self.state.tabs[active_tab].active;
-                self.send_pane_focus_seq(active_tab, tab_active, gained);
+                self.handle_focus_changed(gained);
             }
 
             WindowEvent::ModifiersChanged(mods) => {
@@ -1115,14 +1105,7 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
-                let (exited, has_more) = self.drain_all();
-                for (tab_idx, pane_id) in exited {
-                    self.close_pane_on_tab(tab_idx, pane_id, event_loop);
-                }
-                self.redraw();
-                if has_more && let Some(w) = &self.window {
-                    w.request_redraw();
-                }
+                self.handle_redraw_requested(event_loop);
             }
             _ => {}
         }
@@ -1158,87 +1141,27 @@ impl ApplicationHandler for App {
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + blink_dur));
         } else {
-            let mut next = Instant::now() + (blink_dur - elapsed);
-            // Wake up early if a bell flash is still active so we clear it on expiry.
-            for tab in &self.state.tabs {
-                if let Some(expiry) = tab.bell_flash_until
-                    && expiry > Instant::now()
-                    && expiry < next
-                {
-                    next = expiry;
-                }
-            }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(next));
+            let default_next = Instant::now() + (blink_dur - elapsed);
+            event_loop.set_control_flow(ControlFlow::WaitUntil(next_bell_wakeup(
+                &self.state.tabs,
+                default_next,
+            )));
         }
     }
 }
 
-fn update_tab_after_pane_poll(
-    tab: &mut TabState,
-    id: usize,
-    got_data: bool,
-    detect_urls: bool,
-    tab_is_background: bool,
-) {
-    if let Some(entry) = tab.panes.get_mut(&id) {
-        if got_data && detect_urls {
-            entry.pane.parser.grid.scan_urls();
-        }
-        if entry.pane.parser.grid.bell_pending {
-            entry.pane.parser.grid.bell_pending = false;
-            tab.bell_flash_until = Some(Instant::now() + Duration::from_millis(100));
+fn next_bell_wakeup(tabs: &[TabState], default: Instant) -> Instant {
+    let now = Instant::now();
+    let mut next = default;
+    for tab in tabs {
+        if let Some(expiry) = tab.bell_flash_until
+            && expiry > now
+            && expiry < next
+        {
+            next = expiry;
         }
     }
-    if got_data && tab_is_background {
-        tab.has_activity = true;
-    }
-}
-
-/// Poll one pane's PTY channel up to BYTES_PER_FRAME bytes.
-/// Returns (got_data, has_more, disconnected).
-fn poll_pane_bytes(entry: &mut PaneEntry, clipboard: &mut Option<Clipboard>) -> (bool, bool, bool) {
-    const BYTES_PER_FRAME: usize = 256 * 1024;
-    let mut got_data = false;
-    let mut bytes_this_frame = 0usize;
-    loop {
-        match entry.rx.try_recv() {
-            Ok(bytes) => {
-                got_data = true;
-                bytes_this_frame += bytes.len();
-                process_pane_bytes(bytes, entry, clipboard);
-                if bytes_this_frame >= BYTES_PER_FRAME {
-                    return (true, true, false);
-                }
-            }
-            Err(crossbeam_channel::TryRecvError::Empty) => return (got_data, false, false),
-            Err(crossbeam_channel::TryRecvError::Disconnected) => return (false, false, true),
-        }
-    }
-}
-
-fn process_pane_bytes(bytes: Vec<u8>, entry: &mut PaneEntry, clipboard: &mut Option<Clipboard>) {
-    if let Some(f) = &mut entry.log_file {
-        let _ = f.write_all(&bytes);
-    }
-    entry.pane.process(&bytes);
-    let responses = std::mem::take(&mut entry.pane.parser.grid.pending_responses);
-    if !responses.is_empty() {
-        let _ = entry.pty.write_input(&responses);
-    }
-    if let Some(text) = entry.pane.parser.grid.pending_clipboard_write.take()
-        && let Some(cb) = clipboard.as_mut()
-    {
-        let _ = cb.set_text(text);
-    }
-    if std::mem::take(&mut entry.pane.parser.grid.pending_clipboard_read) {
-        let text = clipboard
-            .as_mut()
-            .and_then(|cb| cb.get_text().ok())
-            .unwrap_or_default();
-        let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
-        let resp = format!("\x1b]52;c;{encoded}\x1b\\");
-        let _ = entry.pty.write_input(resp.as_bytes());
-    }
+    next
 }
 
 fn open_log_file(pane_id: usize, log_dir: &str) -> Option<std::fs::File> {
