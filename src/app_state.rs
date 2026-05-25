@@ -327,30 +327,49 @@ impl AppState {
 
     // ── Visual sub-dispatch ──────────────────────────────────────────────────
 
-    fn dispatch_visual_action(&mut self, action: Action) -> Vec<AppEffect> {
-        match action {
-            Action::Copy => {
-                if let InputMode::Visual {
+    fn do_visual_copy(&mut self) {
+        if let InputMode::Visual {
+            start_col,
+            start_row,
+            cur_col,
+            cur_row,
+            anchored: true,
+        } = self.mode.clone()
+        {
+            if let Some(entry) = self.active_entry() {
+                let text = entry.pane.parser.grid.selected_text(
                     start_col,
                     start_row,
                     cur_col,
                     cur_row,
-                    anchored: true,
-                } = self.mode.clone()
-                {
-                    if let Some(entry) = self.active_entry() {
-                        let text = entry.pane.parser.grid.selected_text(
-                            start_col,
-                            start_row,
-                            cur_col,
-                            cur_row,
-                            entry.pane.scroll_offset,
-                        );
-                        self.copy_text_to_clipboard(text);
-                    }
-                    self.mode = InputMode::Insert;
-                }
+                    entry.pane.scroll_offset,
+                );
+                self.copy_text_to_clipboard(text);
             }
+            self.mode = InputMode::Insert;
+        }
+    }
+
+    fn do_visual_yank_line(&mut self) {
+        if let InputMode::Visual { cur_row, .. } = self.mode.clone() {
+            if let Some(entry) = self.active_entry() {
+                let cols = entry.pane.parser.grid.cols.saturating_sub(1);
+                let text = entry.pane.parser.grid.selected_text(
+                    0,
+                    cur_row,
+                    cols,
+                    cur_row,
+                    entry.pane.scroll_offset,
+                );
+                self.copy_text_to_clipboard(text);
+            }
+            self.mode = InputMode::Insert;
+        }
+    }
+
+    fn dispatch_visual_action(&mut self, action: Action) -> Vec<AppEffect> {
+        match action {
+            Action::Copy => self.do_visual_copy(),
             Action::VisualSwapAnchor => {
                 if let InputMode::Visual {
                     start_col,
@@ -386,22 +405,7 @@ impl AppState {
             Action::VisualWordForward => self.move_visual_cursor(crate::motion::word_forward),
             Action::VisualWordBackward => self.move_visual_cursor(crate::motion::word_backward),
             Action::VisualWordEnd => self.move_visual_cursor(crate::motion::word_end),
-            Action::VisualYankLine => {
-                if let InputMode::Visual { cur_row, .. } = self.mode.clone() {
-                    if let Some(entry) = self.active_entry() {
-                        let cols = entry.pane.parser.grid.cols.saturating_sub(1);
-                        let text = entry.pane.parser.grid.selected_text(
-                            0,
-                            cur_row,
-                            cols,
-                            cur_row,
-                            entry.pane.scroll_offset,
-                        );
-                        self.copy_text_to_clipboard(text);
-                    }
-                    self.mode = InputMode::Insert;
-                }
-            }
+            Action::VisualYankLine => self.do_visual_yank_line(),
             _ => {}
         }
         vec![AppEffect::Redraw]
@@ -453,6 +457,59 @@ impl AppState {
         }
     }
 
+    fn do_scroll_up(&mut self, n: usize) {
+        let grid_rows = self.active_grid_rows();
+        if let Some(e) = self.active_entry_mut() {
+            e.pane.scroll_up(n);
+        }
+        self.adjust_visual_scroll_up(n, grid_rows);
+    }
+
+    fn do_scroll_down(&mut self, n: usize) {
+        if let Some(e) = self.active_entry_mut() {
+            e.pane.scroll_down(n);
+        }
+        self.adjust_visual_scroll_down(n);
+    }
+
+    fn do_scroll_top(&mut self) {
+        if let Some(e) = self.active_entry_mut() {
+            e.pane.scroll_top();
+        }
+    }
+
+    fn do_scroll_bottom(&mut self) {
+        if let Some(e) = self.active_entry_mut() {
+            e.pane.scroll_bottom();
+        }
+    }
+
+    fn do_go_to_tab(&mut self, idx: usize) -> Vec<AppEffect> {
+        if idx < self.tabs.len() {
+            self.active_tab = idx;
+            vec![AppEffect::Redraw]
+        } else {
+            vec![]
+        }
+    }
+
+    fn do_zoom_pane(&mut self) {
+        if !self.tabs.is_empty() {
+            let zoomed = self.tab().zoomed;
+            self.tab_mut().zoomed = !zoomed;
+        }
+    }
+
+    fn do_reset_font_size(&self) -> Vec<AppEffect> {
+        let default = self.config.font.size;
+        let current = self
+            .tabs
+            .get(self.active_tab)
+            .map(|t| t.metrics.font_px)
+            .unwrap_or(default);
+        vec![AppEffect::ChangeFontSize(default - current)]
+    }
+
     // ── Action dispatch ──────────────────────────────────────────────────────
     //
     // Handles all actions that are pure state mutations. Returns `AppEffect`s
@@ -468,9 +525,7 @@ impl AppState {
 
             // ── PTY / IO (delegated to App) ──────────────────────────────────
             Action::SendToPty(bytes) => {
-                if let Some(e) = self.active_entry_mut() {
-                    e.pane.scroll_bottom();
-                }
+                self.do_scroll_bottom();
                 vec![AppEffect::SendToPty(bytes)]
             }
             Action::Paste => vec![AppEffect::Paste],
@@ -480,30 +535,19 @@ impl AppState {
 
             // ── Scroll ───────────────────────────────────────────────────────
             Action::ScrollUp(n) => {
-                let grid_rows = self.active_grid_rows();
-                if let Some(e) = self.active_entry_mut() {
-                    e.pane.scroll_up(n);
-                }
-                self.adjust_visual_scroll_up(n, grid_rows);
+                self.do_scroll_up(n);
                 vec![AppEffect::Redraw]
             }
             Action::ScrollDown(n) => {
-                if let Some(e) = self.active_entry_mut() {
-                    e.pane.scroll_down(n);
-                }
-                self.adjust_visual_scroll_down(n);
+                self.do_scroll_down(n);
                 vec![AppEffect::Redraw]
             }
             Action::ScrollToTop => {
-                if let Some(e) = self.active_entry_mut() {
-                    e.pane.scroll_top();
-                }
+                self.do_scroll_top();
                 vec![AppEffect::Redraw]
             }
             Action::ScrollToBottom => {
-                if let Some(e) = self.active_entry_mut() {
-                    e.pane.scroll_bottom();
-                }
+                self.do_scroll_bottom();
                 vec![AppEffect::Redraw]
             }
             Action::ClearScrollback => {
@@ -564,14 +608,7 @@ impl AppState {
                 self.prev_tab();
                 vec![AppEffect::Redraw]
             }
-            Action::GoToTab(idx) => {
-                if idx < self.tabs.len() {
-                    self.active_tab = idx;
-                    vec![AppEffect::Redraw]
-                } else {
-                    vec![]
-                }
-            }
+            Action::GoToTab(idx) => self.do_go_to_tab(idx),
             Action::MoveTabLeft => {
                 self.move_tab_left();
                 vec![AppEffect::Redraw]
@@ -607,15 +644,7 @@ impl AppState {
             // ── Font size (needs renderer → delegated) ───────────────────────
             Action::IncreaseFontSize => vec![AppEffect::ChangeFontSize(1.0)],
             Action::DecreaseFontSize => vec![AppEffect::ChangeFontSize(-1.0)],
-            Action::ResetFontSize => {
-                let default = self.config.font.size;
-                let current = self
-                    .tabs
-                    .get(self.active_tab)
-                    .map(|t| t.metrics.font_px)
-                    .unwrap_or(default);
-                vec![AppEffect::ChangeFontSize(default - current)]
-            }
+            Action::ResetFontSize => self.do_reset_font_size(),
 
             // ── Pane resize ──────────────────────────────────────────────────
             Action::ResizePaneRight => vec![AppEffect::ResizePane {
@@ -652,10 +681,7 @@ impl AppState {
                 vec![AppEffect::Redraw]
             }
             Action::ZoomPane => {
-                if !self.tabs.is_empty() {
-                    let zoomed = self.tab().zoomed;
-                    self.tab_mut().zoomed = !zoomed;
-                }
+                self.do_zoom_pane();
                 vec![AppEffect::Redraw]
             }
             Action::Quit => self.do_quit(),

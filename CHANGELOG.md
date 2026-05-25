@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - add kimun code quality gates to workflow: `.kimun.toml` config and `doc/LLMs.md` section
 
 ### Changed
+- extract `do_visual_copy`, `do_visual_yank_line`, `do_scroll_up/down/top/bottom`, `do_go_to_tab`, `do_zoom_pane`, `do_reset_font_size` from `app_state.rs`; extract `best_dir_candidate` from `focus_dir` in `layout.rs` — reduces dispatch_action 16→1, dispatch_visual_action 15→5, focus_dir 15→3; add 3 tests for best_dir_candidate
 - extract `osc_set_title`, `osc_set_cwd`, `osc_set_hyperlink`, `osc_clipboard`, `char_delete_n`, `char_insert_n` from `parser.rs`; extract `strip_trailing_punct`, `stamp_url_span`, `collect_row_text` from `grid.rs`; extract `apply_pwd_token`, `apply_date_token` from `statusbar.rs`; add 14 unit tests for new helpers
 - extract `pick_seq`, `handle_ctrl_only`, `visual_up_action`, `visual_down_action` from `keybindings.rs`; rewrite `handle_global_shortcuts` as a flat if-cascade — reduces cognitive complexity of `handle_global_shortcuts` (20→7), `handle_visual` (17→3), `cursor_seq` (13→1); add 14 unit tests for new helpers
 - extract `drain.rs` from `main.rs`: move `drain_all`, `poll_pane_bytes`, `process_pane_bytes`, `update_tab_after_pane_poll` to dedicated module; extract `handle_focus_changed`, `handle_redraw_requested`, `copy_selection_to_clipboard`, `next_bell_wakeup` — reduces `main.rs` by ~160 LOC and 5 complex functions; add 4 unit tests

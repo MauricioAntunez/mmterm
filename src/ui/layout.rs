@@ -360,26 +360,7 @@ impl Layout {
             if *id == from {
                 continue;
             }
-            let cx = (rect[0] + rect[2] / 2) as i32;
-            let cy = (rect[1] + rect[3] / 2) as i32;
-            let ddx = cx - from_cx;
-            let ddy = cy - from_cy;
-            // Must be in the requested direction
-            if dx != 0 && ddx.signum() != dx {
-                continue;
-            }
-            if dy != 0 && ddy.signum() != dy {
-                continue;
-            }
-            // Prefer movement mostly along the requested axis
-            let dist = ddx.abs() + ddy.abs();
-            if let Some((_, bd)) = best {
-                if dist < bd {
-                    best = Some((*id, dist));
-                }
-            } else {
-                best = Some((*id, dist));
-            }
+            best = best_dir_candidate(*id, rect, from_cx, from_cy, dx, dy, best);
         }
         best.map(|(id, _)| id)
     }
@@ -410,6 +391,33 @@ impl Layout {
             width: w,
             height: h,
         }
+    }
+}
+
+fn best_dir_candidate(
+    id: usize,
+    rect: &[u32; 4],
+    from_cx: i32,
+    from_cy: i32,
+    dx: i32,
+    dy: i32,
+    current: Option<(usize, i32)>,
+) -> Option<(usize, i32)> {
+    let cx = (rect[0] + rect[2] / 2) as i32;
+    let cy = (rect[1] + rect[3] / 2) as i32;
+    let ddx = cx - from_cx;
+    let ddy = cy - from_cy;
+    if dx != 0 && ddx.signum() != dx {
+        return current;
+    }
+    if dy != 0 && ddy.signum() != dy {
+        return current;
+    }
+    let dist = ddx.abs() + ddy.abs();
+    if current.is_none_or(|(_, bd)| dist < bd) {
+        Some((id, dist))
+    } else {
+        current
     }
 }
 

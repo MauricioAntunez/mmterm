@@ -496,3 +496,38 @@ fn roundtrip_three_pane_nested() {
         );
     }
 }
+
+// ── best_dir_candidate ───────────────────────────────────────────────────────
+
+#[test]
+fn best_dir_candidate_picks_closer_candidate() {
+    // rect at x=100, width=50 → cx=125; from_cx=0, dx=1 (rightward)
+    let rect_far: [u32; 4] = [200, 0, 50, 50]; // cx=225
+    let rect_near: [u32; 4] = [100, 0, 50, 50]; // cx=125
+    let from_cx = 0_i32;
+    let from_cy = 25_i32;
+
+    let best = best_dir_candidate(1, &rect_far, from_cx, from_cy, 1, 0, None);
+    let best = best_dir_candidate(2, &rect_near, from_cx, from_cy, 1, 0, best);
+    assert_eq!(best.map(|(id, _)| id), Some(2));
+}
+
+#[test]
+fn best_dir_candidate_rejects_wrong_direction() {
+    // rect to the left (cx < from_cx), but dx=1 (rightward)
+    let rect: [u32; 4] = [0, 0, 50, 50]; // cx=25
+    let from_cx = 100_i32;
+    let from_cy = 25_i32;
+    let best = best_dir_candidate(1, &rect, from_cx, from_cy, 1, 0, None);
+    assert!(best.is_none());
+}
+
+#[test]
+fn best_dir_candidate_returns_current_when_farther() {
+    let rect_far: [u32; 4] = [200, 0, 50, 50]; // cx=225
+    let from_cx = 0_i32;
+    let from_cy = 25_i32;
+    let existing = Some((99_usize, 50_i32));
+    let best = best_dir_candidate(1, &rect_far, from_cx, from_cy, 1, 0, existing);
+    assert_eq!(best.map(|(id, _)| id), Some(99));
+}
