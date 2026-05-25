@@ -493,18 +493,29 @@ impl Grid {
             } else {
                 self.cols.saturating_sub(1)
             };
-            let mut line = String::new();
-            for col in col_start..=col_end {
-                if let Some(c) = self.cell_char_at(row, col, scroll_offset) {
-                    line.push(c);
-                }
-            }
+            let line = self.collect_row_text(row, col_start, col_end, scroll_offset);
             if !result.is_empty() {
                 result.push('\n');
             }
             result.push_str(line.trim_end_matches(' '));
         }
         result
+    }
+
+    fn collect_row_text(
+        &self,
+        row: usize,
+        col_start: usize,
+        col_end: usize,
+        scroll_offset: usize,
+    ) -> String {
+        let mut line = String::new();
+        for col in col_start..=col_end {
+            if let Some(c) = self.cell_char_at(row, col, scroll_offset) {
+                line.push(c);
+            }
+        }
+        line
     }
 
     fn cell_char_at(&self, row: usize, col: usize, scroll_offset: usize) -> Option<char> {
@@ -594,16 +605,13 @@ impl Grid {
     pub fn scan_urls(&mut self) {
         for row in 0..self.rows {
             let chars: Vec<char> = (0..self.cols).map(|c| self.cell(c, row).c).collect();
+            let cols = self.cols;
+            let row_cells = &mut self.cells[row * cols..(row + 1) * cols];
             let mut col = 0;
             while col < chars.len() {
                 if let Some(span) = url_span_at(&chars, col) {
                     let url_arc = Arc::new(chars[col..col + span].iter().collect::<String>());
-                    for c in col..col + span {
-                        let cell = self.cell_mut(c, row);
-                        if cell.url.is_none() {
-                            cell.url = Some(url_arc.clone());
-                        }
-                    }
+                    stamp_url_span(row_cells, col, span, &url_arc);
                     col += span;
                 } else {
                     col += 1;
@@ -703,6 +711,37 @@ impl Grid {
     }
 }
 
+fn stamp_url_span(row_cells: &mut [Cell], col: usize, span: usize, url_arc: &Arc<String>) {
+    for cell in &mut row_cells[col..col + span] {
+        if cell.url.is_none() {
+            cell.url = Some(url_arc.clone());
+        }
+    }
+}
+
+/// Strip trailing punctuation from a URL body.  Returns the adjusted length.
+/// For `)` only strips if there is no matching `(` inside the URL body.
+fn strip_trailing_punct(tail: &[char], prefix_len: usize, mut len: usize) -> usize {
+    const TRAILING: &[char] = &['.', ',', ';', ':', '!', '?', '\'', '"', ']', '>'];
+    while len > prefix_len {
+        let c = tail[len - 1];
+        if TRAILING.contains(&c) {
+            len -= 1;
+        } else if c == ')' {
+            let open = tail[prefix_len..len].iter().filter(|&&x| x == '(').count();
+            let close = tail[prefix_len..len].iter().filter(|&&x| x == ')').count();
+            if close > open {
+                len -= 1;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    len
+}
+
 /// Returns the length (in chars) of a URL starting at `chars[start]`, or
 /// `None` if there is no URL there.  Matches `http://…` and `https://…`
 /// up to the first whitespace or C0 control character.
@@ -726,25 +765,7 @@ fn url_span_at(chars: &[char], start: usize) -> Option<usize> {
     if len <= prefix_len {
         return None;
     }
-    // Strip trailing punctuation that is almost never part of the URL.
-    // For ')' we only strip if there is no matching '(' inside the URL body.
-    const TRAILING: &[char] = &['.', ',', ';', ':', '!', '?', '\'', '"', ']', '>'];
-    while len > prefix_len {
-        let c = tail[len - 1];
-        if TRAILING.contains(&c) {
-            len -= 1;
-        } else if c == ')' {
-            let open = tail[prefix_len..len].iter().filter(|&&x| x == '(').count();
-            let close = tail[prefix_len..len].iter().filter(|&&x| x == ')').count();
-            if close > open {
-                len -= 1;
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
+    let len = strip_trailing_punct(tail, prefix_len, len);
     if len > prefix_len { Some(len) } else { None }
 }
 

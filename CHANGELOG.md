@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - add kimun code quality gates to workflow: `.kimun.toml` config and `doc/LLMs.md` section
 
 ### Changed
+- extract `osc_set_title`, `osc_set_cwd`, `osc_set_hyperlink`, `osc_clipboard`, `char_delete_n`, `char_insert_n` from `parser.rs`; extract `strip_trailing_punct`, `stamp_url_span`, `collect_row_text` from `grid.rs`; extract `apply_pwd_token`, `apply_date_token` from `statusbar.rs`; add 14 unit tests for new helpers
 - extract `pick_seq`, `handle_ctrl_only`, `visual_up_action`, `visual_down_action` from `keybindings.rs`; rewrite `handle_global_shortcuts` as a flat if-cascade — reduces cognitive complexity of `handle_global_shortcuts` (20→7), `handle_visual` (17→3), `cursor_seq` (13→1); add 14 unit tests for new helpers
 - extract `drain.rs` from `main.rs`: move `drain_all`, `poll_pane_bytes`, `process_pane_bytes`, `update_tab_after_pane_poll` to dedicated module; extract `handle_focus_changed`, `handle_redraw_requested`, `copy_selection_to_clipboard`, `next_bell_wakeup` — reduces `main.rs` by ~160 LOC and 5 complex functions; add 4 unit tests
 - extract `renderer/blit.rs` from `renderer/text.rs`: move `blit_color_glyph`, `blit_gray_glyph` into dedicated module with `compose_color_pixel` helper; extract `blit_glyph_pixels` from `draw_str` — reduces `draw_str` complexity from 19 to 1, reduces `renderer/text.rs` LOC by ~120

@@ -244,10 +244,8 @@ fn handle_global_shortcuts(
     if ctrl {
         return handle_ctrl_only(key, alt, mode);
     }
-    if shift {
-        if let Some(a) = shift_scroll_action(key, grid_rows) {
-            return Some(a);
-        }
+    if shift && let Some(a) = shift_scroll_action(key, grid_rows) {
+        return Some(a);
     }
     if alt {
         return alt_action(key, false, shift);

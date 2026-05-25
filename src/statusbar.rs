@@ -8,6 +8,27 @@ use chrono::{DateTime, Local};
 ///
 /// Literal text and spaces between tokens are preserved as-is.
 /// Returns `None` when `template` is empty or resolves to an empty string.
+fn apply_pwd_token(result: &mut String, cwd: Option<&str>) {
+    match cwd {
+        Some(p) => result.push_str(p),
+        None => {
+            if result.ends_with(' ') {
+                result.pop();
+            }
+        }
+    }
+}
+
+fn apply_date_token<'a>(result: &mut String, inner: &'a str, now: &DateTime<Local>) -> &'a str {
+    if let Some(close) = inner.find('}') {
+        result.push_str(&now.format(&inner[..close]).to_string());
+        &inner[close + 1..]
+    } else {
+        result.push_str("%date{");
+        inner
+    }
+}
+
 pub fn resolve(template: &str, cwd: Option<&str>, now: &DateTime<Local>) -> Option<String> {
     if template.is_empty() {
         return None;
@@ -16,25 +37,10 @@ pub fn resolve(template: &str, cwd: Option<&str>, now: &DateTime<Local>) -> Opti
     let mut rest = template;
     while !rest.is_empty() {
         if let Some(after) = rest.strip_prefix("%pwd") {
-            match cwd {
-                Some(p) => result.push_str(p),
-                None => {
-                    // remove a trailing space that would be left behind
-                    if result.ends_with(' ') {
-                        result.pop();
-                    }
-                }
-            }
+            apply_pwd_token(&mut result, cwd);
             rest = after;
         } else if let Some(inner) = rest.strip_prefix("%date{") {
-            if let Some(close) = inner.find('}') {
-                let fmt = &inner[..close];
-                result.push_str(&now.format(fmt).to_string());
-                rest = &inner[close + 1..];
-            } else {
-                result.push_str("%date{");
-                rest = inner;
-            }
+            rest = apply_date_token(&mut result, inner, now);
         } else {
             let next = rest.find('%').unwrap_or(rest.len());
             result.push_str(&rest[..next]);

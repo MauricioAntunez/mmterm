@@ -135,3 +135,50 @@ fn pane_title_shown_when_no_cwd() {
 fn pane_title_none_input_returns_none() {
     assert_eq!(pane_title_for_display(None, true, Some("/src")), None);
 }
+
+// ── apply_pwd_token ───────────────────────────────────────────────────────────
+
+#[test]
+fn apply_pwd_token_some_appends_cwd() {
+    let mut s = String::from("prefix ");
+    apply_pwd_token(&mut s, Some("/home/user"));
+    assert_eq!(s, "prefix /home/user");
+}
+
+#[test]
+fn apply_pwd_token_none_removes_trailing_space() {
+    let mut s = String::from("prefix ");
+    apply_pwd_token(&mut s, None);
+    assert_eq!(s, "prefix");
+}
+
+#[test]
+fn apply_pwd_token_none_no_trailing_space_unchanged() {
+    let mut s = String::from("prefix");
+    apply_pwd_token(&mut s, None);
+    assert_eq!(s, "prefix");
+}
+
+// ── apply_date_token ─────────────────────────────────────────────────────────
+
+#[test]
+fn apply_date_token_known_format_appends_to_result() {
+    use chrono::TimeZone;
+    let now = chrono::Local
+        .with_ymd_and_hms(2024, 1, 15, 12, 0, 0)
+        .unwrap();
+    let mut s = String::new();
+    let rest = apply_date_token(&mut s, "%Y}", &now);
+    assert_eq!(s, "2024");
+    assert_eq!(rest, "");
+}
+
+#[test]
+fn apply_date_token_no_close_brace_emits_literal() {
+    use chrono::Local;
+    let now = Local::now();
+    let mut s = String::new();
+    let rest = apply_date_token(&mut s, "unclosed", &now);
+    assert_eq!(s, "%date{");
+    assert_eq!(rest, "unclosed");
+}

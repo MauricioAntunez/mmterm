@@ -589,3 +589,81 @@ fn scan_urls_strips_trailing_dot_and_comma() {
         );
     }
 }
+
+// ── strip_trailing_punct ──────────────────────────────────────────────────────
+
+#[test]
+fn strip_trailing_punct_removes_dot() {
+    let chars: Vec<char> = "https://example.com.".chars().collect();
+    let len = strip_trailing_punct(&chars, 8, chars.len());
+    assert_eq!(
+        &chars[..len].iter().collect::<String>(),
+        "https://example.com"
+    );
+}
+
+#[test]
+fn strip_trailing_punct_keeps_balanced_parens() {
+    let chars: Vec<char> = "https://x.com/Rust_(lang)".chars().collect();
+    let len = strip_trailing_punct(&chars, 8, chars.len());
+    assert_eq!(len, chars.len());
+}
+
+#[test]
+fn strip_trailing_punct_strips_unbalanced_close_paren() {
+    let chars: Vec<char> = "https://x.com/foo)".chars().collect();
+    let len = strip_trailing_punct(&chars, 8, chars.len());
+    assert_eq!(
+        &chars[..len].iter().collect::<String>(),
+        "https://x.com/foo"
+    );
+}
+
+// ── stamp_url_span ────────────────────────────────────────────────────────────
+
+#[test]
+fn stamp_url_span_sets_url_on_cells() {
+    let mut g = make_grid(10, 1);
+    let url = Arc::new("https://x.com".to_string());
+    let cols = g.cols;
+    let row_cells = &mut g.cells[0..cols];
+    stamp_url_span(row_cells, 0, 3, &url);
+    assert!(g.cells[0].url.is_some());
+    assert!(g.cells[1].url.is_some());
+    assert!(g.cells[2].url.is_some());
+    assert!(g.cells[3].url.is_none());
+}
+
+#[test]
+fn stamp_url_span_does_not_overwrite_existing_url() {
+    let mut g = make_grid(10, 1);
+    let existing = Arc::new("existing".to_string());
+    g.cells[0].url = Some(existing.clone());
+    let new_url = Arc::new("https://x.com".to_string());
+    let cols = g.cols;
+    let row_cells = &mut g.cells[0..cols];
+    stamp_url_span(row_cells, 0, 3, &new_url);
+    assert_eq!(
+        g.cells[0].url.as_deref().map(|s| s.as_str()),
+        Some("existing")
+    );
+    assert!(g.cells[1].url.is_some());
+}
+
+// ── collect_row_text ─────────────────────────────────────────────────────────
+
+#[test]
+fn collect_row_text_returns_chars_in_range() {
+    let mut g = make_grid(10, 2);
+    write_str(&mut g, "hello");
+    let text = g.collect_row_text(0, 0, 4, 0);
+    assert_eq!(text, "hello");
+}
+
+#[test]
+fn collect_row_text_single_cell() {
+    let mut g = make_grid(5, 1);
+    write_str(&mut g, "abc");
+    let text = g.collect_row_text(0, 1, 1, 0);
+    assert_eq!(text, "b");
+}

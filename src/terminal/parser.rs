@@ -190,29 +190,8 @@ impl Performer<'_> {
         let cols = self.grid.cols;
         let blank = self.grid.erase_cell();
         match action {
-            // DCH: delete n characters, shift line left
-            'P' => {
-                let n = n.min(cols - col);
-                for c in col..cols {
-                    self.grid.cells[row * cols + c] = if c + n < cols {
-                        self.grid.cells[row * cols + c + n].clone()
-                    } else {
-                        blank.clone()
-                    };
-                }
-            }
-            // ICH: insert n blank characters, shift line right
-            '@' => {
-                let n = n.min(cols - col);
-                for c in (col..cols).rev() {
-                    self.grid.cells[row * cols + c] = if c >= col + n {
-                        self.grid.cells[row * cols + c - n].clone()
-                    } else {
-                        blank.clone()
-                    };
-                }
-            }
-            // ECH: erase n characters in place (no shift)
+            'P' => char_delete_n(&mut self.grid.cells, row, col, cols, n, blank),
+            '@' => char_insert_n(&mut self.grid.cells, row, col, cols, n, blank),
             'X' => {
                 for c in col..(col + n).min(cols) {
                     self.grid.cells[row * cols + c] = blank.clone();
@@ -345,45 +324,10 @@ impl Perform for Performer<'_> {
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
-        // OSC 0/1/2: set window title (0 and 2 = window title, 1 = icon name)
-        if let [code, title] = params
-            && matches!(*code, b"0" | b"1" | b"2")
-            && let Ok(s) = std::str::from_utf8(title)
-        {
-            let t = s.trim();
-            self.grid.osc_title = if t.is_empty() {
-                None
-            } else {
-                Some(t.to_string())
-            };
-        }
-        // OSC 7: current working directory reported by the shell
-        if let [b"7", uri] = params
-            && let Ok(s) = std::str::from_utf8(uri)
-        {
-            self.grid.cwd = parse_osc7_uri(s);
-        }
-        // OSC 8 hyperlink: \e]8;params;uri\e\\  (empty uri = end link)
-        if let [osc, _, uri, ..] = params
-            && *osc == b"8"
-        {
-            if uri.is_empty() {
-                self.grid.current_url = None;
-            } else if let Ok(s) = std::str::from_utf8(uri) {
-                self.grid.current_url = Some(std::sync::Arc::new(s.to_string()));
-            }
-        }
-        // OSC 52: clipboard access — OSC 52 ; <sel> ; <base64|?> ST
-        // Write: data is base64-encoded text; Read: data is "?"
-        if let [b"52", _sel, data] = params {
-            if *data == b"?" {
-                self.grid.pending_clipboard_read = true;
-            } else if let Ok(decoded) = BASE64.decode(data)
-                && let Ok(text) = std::str::from_utf8(&decoded)
-            {
-                self.grid.pending_clipboard_write = Some(text.to_string());
-            }
-        }
+        osc_set_title(self.grid, params);
+        osc_set_cwd(self.grid, params);
+        osc_set_hyperlink(self.grid, params);
+        osc_clipboard(self.grid, params);
     }
     fn hook(&mut self, _params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
         // Sixel graphics: DCS P...q (final char = 'q', no intermediates)
@@ -446,6 +390,88 @@ impl Perform for Performer<'_> {
                 self.grid.reset();
             }
             _ => {}
+        }
+    }
+}
+
+fn char_delete_n(
+    cells: &mut [super::grid::Cell],
+    row: usize,
+    col: usize,
+    cols: usize,
+    n: usize,
+    blank: super::grid::Cell,
+) {
+    let n = n.min(cols - col);
+    for c in col..cols {
+        cells[row * cols + c] = if c + n < cols {
+            cells[row * cols + c + n].clone()
+        } else {
+            blank.clone()
+        };
+    }
+}
+
+fn char_insert_n(
+    cells: &mut [super::grid::Cell],
+    row: usize,
+    col: usize,
+    cols: usize,
+    n: usize,
+    blank: super::grid::Cell,
+) {
+    let n = n.min(cols - col);
+    for c in (col..cols).rev() {
+        cells[row * cols + c] = if c >= col + n {
+            cells[row * cols + c - n].clone()
+        } else {
+            blank.clone()
+        };
+    }
+}
+
+fn osc_set_title(grid: &mut Grid, params: &[&[u8]]) {
+    if let [code, title] = params
+        && matches!(*code, b"0" | b"1" | b"2")
+        && let Ok(s) = std::str::from_utf8(title)
+    {
+        let t = s.trim();
+        grid.osc_title = if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        };
+    }
+}
+
+fn osc_set_cwd(grid: &mut Grid, params: &[&[u8]]) {
+    if let [b"7", uri] = params
+        && let Ok(s) = std::str::from_utf8(uri)
+    {
+        grid.cwd = parse_osc7_uri(s);
+    }
+}
+
+fn osc_set_hyperlink(grid: &mut Grid, params: &[&[u8]]) {
+    if let [osc, _, uri, ..] = params
+        && *osc == b"8"
+    {
+        if uri.is_empty() {
+            grid.current_url = None;
+        } else if let Ok(s) = std::str::from_utf8(uri) {
+            grid.current_url = Some(std::sync::Arc::new(s.to_string()));
+        }
+    }
+}
+
+fn osc_clipboard(grid: &mut Grid, params: &[&[u8]]) {
+    if let [b"52", _sel, data] = params {
+        if *data == b"?" {
+            grid.pending_clipboard_read = true;
+        } else if let Ok(decoded) = BASE64.decode(data)
+            && let Ok(text) = std::str::from_utf8(&decoded)
+        {
+            grid.pending_clipboard_write = Some(text.to_string());
         }
     }
 }
