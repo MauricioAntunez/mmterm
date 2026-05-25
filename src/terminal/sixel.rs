@@ -225,33 +225,40 @@ impl SixelDecoder {
         }
     }
 
+    fn plot_pixel(&mut self, px: u32, py: u32, r: u8, g: u8, b: u8, a: u8) {
+        if py < self.height && px < self.width {
+            let base = ((py * self.width + px) * 4) as usize;
+            self.pixels[base] = r;
+            self.pixels[base + 1] = g;
+            self.pixels[base + 2] = b;
+            self.pixels[base + 3] = a;
+        }
+    }
+
+    fn plot_one_sixel(&mut self, px: u32, bits: u8, r: u8, g: u8, b: u8, a: u8) -> bool {
+        if self.truncated {
+            return false;
+        }
+        if !self.ensure_size(px + 1, self.band_row + 6) {
+            return false;
+        }
+        for bit_idx in 0..6u32 {
+            if bits & (1 << bit_idx) != 0 {
+                self.plot_pixel(px, self.band_row + bit_idx, r, g, b, a);
+            }
+        }
+        true
+    }
+
     fn plot_sixel(&mut self, bits: u8, repeat: u32) {
         if bits == 0 {
-            // No pixels set; advance x without allocating buffer space.
             self.x = self.x.saturating_add(repeat);
             return;
         }
         let (r, g, b, a) = self.palette.get_rgba(self.current_color);
         for _ in 0..repeat {
-            if self.truncated {
+            if !self.plot_one_sixel(self.x, bits, r, g, b, a) {
                 break;
-            }
-            let px = self.x;
-            // Ensure the buffer covers this band's 6 rows.
-            if !self.ensure_size(px + 1, self.band_row + 6) {
-                break;
-            }
-            for bit_idx in 0..6u32 {
-                if bits & (1 << bit_idx) != 0 {
-                    let py = self.band_row + bit_idx;
-                    if py < self.height && px < self.width {
-                        let base = ((py * self.width + px) * 4) as usize;
-                        self.pixels[base] = r;
-                        self.pixels[base + 1] = g;
-                        self.pixels[base + 2] = b;
-                        self.pixels[base + 3] = a;
-                    }
-                }
             }
             self.x += 1;
         }

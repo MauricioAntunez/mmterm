@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - add kimun code quality gates to workflow: `.kimun.toml` config and `doc/LLMs.md` section
 
 ### Changed
+- extract `plot_one_sixel`, `plot_pixel` from `plot_sixel` in `sixel.rs` — reduces plot_sixel complexity 16→4; extract `cell_out_of_pane_bounds`, `should_draw_glyph` from `render_row` and `draw_search_info`, `draw_pane_title_centered`, `draw_right_status` from `draw_status_bar` in `renderer/text.rs`
 - extract `do_visual_copy`, `do_visual_yank_line`, `do_scroll_up/down/top/bottom`, `do_go_to_tab`, `do_zoom_pane`, `do_reset_font_size` from `app_state.rs`; extract `best_dir_candidate` from `focus_dir` in `layout.rs` — reduces dispatch_action 16→1, dispatch_visual_action 15→5, focus_dir 15→3; add 3 tests for best_dir_candidate
 - extract `osc_set_title`, `osc_set_cwd`, `osc_set_hyperlink`, `osc_clipboard`, `char_delete_n`, `char_insert_n` from `parser.rs`; extract `strip_trailing_punct`, `stamp_url_span`, `collect_row_text` from `grid.rs`; extract `apply_pwd_token`, `apply_date_token` from `statusbar.rs`; add 14 unit tests for new helpers
 - extract `pick_seq`, `handle_ctrl_only`, `visual_up_action`, `visual_down_action` from `keybindings.rs`; rewrite `handle_global_shortcuts` as a flat if-cascade — reduces cognitive complexity of `handle_global_shortcuts` (20→7), `handle_visual` (17→3), `cursor_seq` (13→1); add 14 unit tests for new helpers

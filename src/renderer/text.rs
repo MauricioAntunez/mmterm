@@ -319,9 +319,7 @@ impl Renderer {
             let cell_x = rx + PANE_PADDING + col as u32 * m.cell_width;
             let cell_y = ry + PANE_PADDING + row as u32 * m.cell_height;
 
-            if cell_x + draw_w > rx + rw.saturating_sub(PANE_PADDING)
-                || cell_y + m.cell_height > ry + rh.saturating_sub(PANE_PADDING)
-            {
+            if cell_out_of_pane_bounds(cell_x, cell_y, draw_w, m.cell_height, rx, ry, rw, rh) {
                 col += cell_cols as usize;
                 continue;
             }
@@ -351,7 +349,7 @@ impl Renderer {
 
             fill_rect(buf, buf_width, cell_x, cell_y, draw_w, m.cell_height, bg32);
 
-            if cell.c != ' ' && (!cell.blink || pane.blink_visible) {
+            if should_draw_glyph(cell, pane.blink_visible) {
                 self.draw_glyph(
                     buf,
                     buf_width,
@@ -536,26 +534,18 @@ impl Renderer {
         );
 
         // Show search query and match count next to the badge.
-        if let InputMode::Search { query } = mode {
-            let info = if query.is_empty() {
-                "/".to_string()
-            } else if search_total == 0 {
-                format!("/{query}  [no matches]")
-            } else {
-                format!("/{query}  [{}/{}]", search_current + 1, search_total)
-            };
-            self.draw_str(
-                buf,
-                width,
-                height,
-                badge_x + badge_w + 10,
-                badge_y + 2,
-                &info,
-                px,
-                false,
-                color_u32(theme.palette[15]),
-            );
-        }
+        self.draw_search_info(
+            buf,
+            width,
+            height,
+            mode,
+            search_total,
+            search_current,
+            badge_x + badge_w + 10,
+            badge_y + 2,
+            px,
+            color_u32(theme.palette[15]),
+        );
 
         // Show ● REC badge when session logging is active.
         if is_logging {
@@ -580,6 +570,70 @@ impl Renderer {
         }
 
         // Show pane OSC title centered in the status bar (suppressed during search).
+        self.draw_pane_title_centered(
+            buf,
+            width,
+            height,
+            mode,
+            pane_title,
+            badge_y,
+            char_w,
+            px,
+            color_u32(theme.palette[8]),
+        );
+
+        // Show right-aligned status bar segments (pwd, date, etc.).
+        self.draw_right_status(
+            buf,
+            width,
+            height,
+            right_text,
+            badge_y,
+            char_w,
+            px,
+            color_u32(theme.palette[8]),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_search_info(
+        &mut self,
+        buf: &mut [u32],
+        width: u32,
+        height: u32,
+        mode: &InputMode,
+        search_total: usize,
+        search_current: usize,
+        x: u32,
+        y: u32,
+        px: f32,
+        color: u32,
+    ) {
+        if let InputMode::Search { query } = mode {
+            let info = if query.is_empty() {
+                "/".to_string()
+            } else if search_total == 0 {
+                format!("/{query}  [no matches]")
+            } else {
+                format!("/{query}  [{}/{}]", search_current + 1, search_total)
+            };
+            self.draw_str(buf, width, height, x, y, &info, px, false, color);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_pane_title_centered(
+        &mut self,
+        buf: &mut [u32],
+        width: u32,
+        height: u32,
+        mode: &InputMode,
+        pane_title: Option<&str>,
+        badge_y: u32,
+        char_w: u32,
+        px: f32,
+        color: u32,
+    ) {
         if !matches!(mode, InputMode::Search { .. })
             && let Some(title) = pane_title
         {
@@ -595,12 +649,24 @@ impl Renderer {
                     title,
                     px,
                     false,
-                    color_u32(theme.palette[8]),
+                    color,
                 );
             }
         }
+    }
 
-        // Show right-aligned status bar segments (pwd, date, etc.).
+    #[allow(clippy::too_many_arguments)]
+    fn draw_right_status(
+        &mut self,
+        buf: &mut [u32],
+        width: u32,
+        height: u32,
+        right_text: Option<&str>,
+        badge_y: u32,
+        char_w: u32,
+        px: f32,
+        color: u32,
+    ) {
         if let Some(text) = right_text {
             let text_w = text.len() as u32 * char_w;
             if let Some(text_x) = width.checked_sub(text_w + 10) {
@@ -613,7 +679,7 @@ impl Renderer {
                     text,
                     px,
                     false,
-                    color_u32(theme.palette[8]),
+                    color,
                 );
             }
         }
@@ -683,6 +749,25 @@ pub(super) fn dim_color(c: u32, factor: f32) -> u32 {
     let g = (((c >> 8) & 0xFF) as f32 * factor) as u32;
     let b = ((c & 0xFF) as f32 * factor) as u32;
     (0xFF << 24) | (r << 16) | (g << 8) | b
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cell_out_of_pane_bounds(
+    cell_x: u32,
+    cell_y: u32,
+    draw_w: u32,
+    cell_height: u32,
+    rx: u32,
+    ry: u32,
+    rw: u32,
+    rh: u32,
+) -> bool {
+    cell_x + draw_w > rx + rw.saturating_sub(PANE_PADDING)
+        || cell_y + cell_height > ry + rh.saturating_sub(PANE_PADDING)
+}
+
+fn should_draw_glyph(cell: &Cell, blink_visible: bool) -> bool {
+    cell.c != ' ' && (!cell.blink || blink_visible)
 }
 
 fn cell_url_hovered(cell_url: Option<&str>, hovered_url: Option<&str>) -> bool {
