@@ -1,3 +1,4 @@
+mod blit;
 mod glyph;
 mod overlays;
 mod text;

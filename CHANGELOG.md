@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - add kimun code quality gates to workflow: `.kimun.toml` config and `doc/LLMs.md` section
 
 ### Changed
+- extract `renderer/blit.rs` from `renderer/text.rs`: move `blit_color_glyph`, `blit_gray_glyph` into dedicated module with `compose_color_pixel` helper; extract `blit_glyph_pixels` from `draw_str` — reduces `draw_str` complexity from 19 to 1, reduces `renderer/text.rs` LOC by ~120
 - extract `ctrl_shift_action`, `ctrl_char_action`, `alt_action` from `handle_global_shortcuts()` and `encode_ctrl_key`, `encode_alt_key`, `cursor_seq` from `handle_insert()` in `keybindings.rs`; reduces cognitive complexity from 85 to ~30
 - extract `active_entry`, `active_entry_mut`, `active_grid_rows`, `move_visual_cursor`, `copy_text_to_clipboard`, `adjust_visual_scroll_up/down`, `visual_start_pos` from `dispatch_action()` in `app_state.rs`; reduces cognitive complexity from 144 to 61; add 6 tests covering previously untested arms (`VisualWordBackward`, `VisualWordEnd`, `VisualBoundaryDown`, visual coordinate adjustment on scroll)
 - extract `do_auto_split`, `do_resize_pane`, `do_toggle_log`, `do_paste` from `execute_action()` in `main.rs`; extract `dispatch_visual_action`, `visual_boundary_scroll_up/down` from `dispatch_action()` in `app_state.rs`

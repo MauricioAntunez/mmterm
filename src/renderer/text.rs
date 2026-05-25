@@ -1,3 +1,4 @@
+use super::blit::{blit_color_glyph, blit_glyph_pixels, blit_gray_glyph};
 use super::glyph::GlyphCache;
 use crate::input::InputMode;
 use crate::terminal::grid::{Cell, CursorShape};
@@ -481,23 +482,7 @@ impl Renderer {
             let (gw, gh) = (info.width, info.height);
             let glyph_top = baseline as i32 - (gh as i32 + info.ymin);
             let cy = (y as i32 + glyph_top).max(0) as u32;
-            for gy in 0..gh {
-                for gx in 0..gw {
-                    let alpha = info.bitmap[(gy * gw + gx) as usize];
-                    if alpha == 0 {
-                        continue;
-                    }
-                    let sx = x + gx;
-                    let sy = cy + gy;
-                    if sx >= bw || sy >= bh {
-                        continue;
-                    }
-                    let idx = (sy * bw + sx) as usize;
-                    if idx < buf.len() {
-                        buf[idx] = blend(buf[idx], color, alpha);
-                    }
-                }
-            }
+            blit_glyph_pixels(buf, bw, bh, x, cy, gw, gh, &info.bitmap, color);
             x += advance;
         }
     }
@@ -693,7 +678,7 @@ pub(super) fn color_u32(c: Color) -> u32 {
     (0xFF << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
 }
 
-fn dim_color(c: u32, factor: f32) -> u32 {
+pub(super) fn dim_color(c: u32, factor: f32) -> u32 {
     let r = (((c >> 16) & 0xFF) as f32 * factor) as u32;
     let g = (((c >> 8) & 0xFF) as f32 * factor) as u32;
     let b = ((c & 0xFF) as f32 * factor) as u32;
@@ -774,85 +759,6 @@ pub(super) fn draw_rect_border(
         }
         if r < buf.len() {
             buf[r] = color;
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn blit_color_glyph(
-    buf: &mut [u32],
-    buf_width: u32,
-    bitmap: &[u8],
-    gw: u32,
-    gh: u32,
-    x_base: u32,
-    cell_y: u32,
-    y_offset: u32,
-    bg32: u32,
-    pane_is_active: bool,
-    dim_factor: f32,
-    clip: [u32; 4],
-) {
-    let [rx, ry, rw, rh] = clip;
-    for gy in 0..gh {
-        for gx in 0..gw {
-            let base = ((gy * gw + gx) * 4) as usize;
-            let a = bitmap[base + 3];
-            if a == 0 {
-                continue;
-            }
-            let sx = x_base + gx;
-            let sy = cell_y + y_offset + gy;
-            if sx >= rx + rw || sy >= ry + rh {
-                continue;
-            }
-            let idx = (sy * buf_width + sx) as usize;
-            if idx < buf.len() {
-                let r = bitmap[base] as u32;
-                let g = bitmap[base + 1] as u32;
-                let b = bitmap[base + 2] as u32;
-                let px = (0xff_u32 << 24) | (r << 16) | (g << 8) | b;
-                let px = if pane_is_active {
-                    px
-                } else {
-                    dim_color(px, dim_factor)
-                };
-                buf[idx] = blend(bg32, px, a);
-            }
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn blit_gray_glyph(
-    buf: &mut [u32],
-    buf_width: u32,
-    bitmap: &[u8],
-    gw: u32,
-    gh: u32,
-    x_base: u32,
-    cell_y: u32,
-    y_offset: u32,
-    bg32: u32,
-    fg32: u32,
-    clip: [u32; 4],
-) {
-    let [rx, ry, rw, rh] = clip;
-    for gy in 0..gh {
-        for gx in 0..gw {
-            let alpha = bitmap[(gy * gw + gx) as usize];
-            if alpha == 0 {
-                continue;
-            }
-            let sx = x_base + gx;
-            let sy = cell_y + y_offset + gy;
-            if sx >= rx + rw || sy >= ry + rh {
-                continue;
-            }
-            let idx = (sy * buf_width + sx) as usize;
-            if idx < buf.len() {
-                buf[idx] = blend(bg32, fg32, alpha);
-            }
         }
     }
 }
