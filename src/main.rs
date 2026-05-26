@@ -1005,6 +1005,32 @@ fn open_url(url: &str) {
     }
 }
 
+/// Returns `true` if `--version` or `-V` appears in the given argument iterator.
+pub(crate) fn version_requested(mut args: impl Iterator<Item = String>) -> bool {
+    args.any(|a| a == "--version" || a == "-V")
+}
+
+/// Returns `true` if `--help` or `-h` appears in the given argument iterator.
+pub(crate) fn help_requested(mut args: impl Iterator<Item = String>) -> bool {
+    args.any(|a| a == "--help" || a == "-h")
+}
+
+pub(crate) fn print_help() {
+    println!(
+        "mmterm {version}
+
+A cross-platform CPU-rendered terminal emulator.
+
+Usage: mmterm [OPTIONS]
+
+Options:
+  --version, -V    Print version and exit
+  --help,    -h    Print this help and exit
+  --debug          Enable debug logging to ~/.mmterm/debug-<ts>.log",
+        version = env!("MMTERM_VERSION")
+    );
+}
+
 /// Returns the debug log path when `--debug` is in argv, otherwise `None`.
 pub fn debug_log_path() -> Option<String> {
     if !std::env::args().any(|a| a == "--debug") {
@@ -1065,6 +1091,16 @@ fn init_logging(log_path: Option<&str>) {
 }
 
 fn main() {
+    if version_requested(std::env::args()) {
+        println!("mmterm {}", env!("MMTERM_VERSION"));
+        return;
+    }
+
+    if help_requested(std::env::args()) {
+        print_help();
+        return;
+    }
+
     let log_path = debug_log_path();
     init_logging(log_path.as_deref());
 

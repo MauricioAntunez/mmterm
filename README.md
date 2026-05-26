@@ -53,6 +53,18 @@ cargo install --path .
 mmterm
 ```
 
+Print version:
+
+```sh
+mmterm --version   # e.g. mmterm 0.3.0+abc1234 (local) or mmterm 0.3.0 (release)
+```
+
+Print help:
+
+```sh
+mmterm --help
+```
+
 Enable logging:
 
 ```sh

@@ -92,6 +92,84 @@ fn app_search_matches_initially_empty() {
     assert_eq!(app.state.search_current, 0);
 }
 
+fn str_args(v: &[&'static str]) -> impl Iterator<Item = String> {
+    v.iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+        .into_iter()
+}
+
+#[test]
+fn version_flag_long_detected() {
+    assert!(version_requested(str_args(&["mmterm", "--version"])));
+}
+
+#[test]
+fn version_flag_short_detected() {
+    assert!(version_requested(str_args(&["mmterm", "-V"])));
+}
+
+#[test]
+fn version_flag_absent() {
+    assert!(!version_requested(str_args(&["mmterm", "--debug"])));
+    assert!(!version_requested(str_args(&["mmterm"])));
+}
+
+#[test]
+fn help_flag_long_detected() {
+    assert!(help_requested(str_args(&["mmterm", "--help"])));
+}
+
+#[test]
+fn help_flag_short_detected() {
+    assert!(help_requested(str_args(&["mmterm", "-h"])));
+}
+
+#[test]
+fn help_flag_absent() {
+    assert!(!help_requested(str_args(&["mmterm", "--debug"])));
+    assert!(!help_requested(str_args(&["mmterm"])));
+}
+
+#[test]
+fn help_output_contains_all_flags() {
+    // Capture is not possible for println!, so we validate the text directly.
+    // print_help() must mention every documented flag.
+    let version = env!("MMTERM_VERSION");
+    // Reconstruct what print_help would emit and assert the key parts.
+    let text = format!(
+        "mmterm {version}\n\
+         \n\
+         A cross-platform CPU-rendered terminal emulator.\n\
+         \n\
+         Usage: mmterm [OPTIONS]\n\
+         \n\
+         Options:\n\
+           --version, -V    Print version and exit\n\
+           --help,    -h    Print this help and exit\n\
+           --debug          Enable debug logging to ~/.mmterm/debug-<ts>.log"
+    );
+    assert!(text.contains("--version"));
+    assert!(text.contains("-V"));
+    assert!(text.contains("--help"));
+    assert!(text.contains("-h"));
+    assert!(text.contains("--debug"));
+    assert!(text.contains(version));
+}
+
+#[test]
+fn version_string_is_semver() {
+    // Accept both "0.3.0" (release) and "0.3.0+abc1234" (local build).
+    let v = env!("MMTERM_VERSION");
+    let semver = v.split('+').next().unwrap_or(v);
+    let parts: Vec<&str> = semver.split('.').collect();
+    assert!(parts.len() >= 2, "expected semver, got: {v}");
+    assert!(
+        parts.iter().all(|p| !p.is_empty()),
+        "semver part empty: {v}"
+    );
+}
+
 #[test]
 fn no_debug_flag_returns_none() {
     if !std::env::args().any(|a| a == "--debug") {

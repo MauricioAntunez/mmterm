@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `--version` / `-V` flag: prints `mmterm <version>` and exits; local builds include the git short hash (`0.3.0+abc1234`)
+- `--help` / `-h` flag: prints usage and all supported options, then exits
+
 ### Fixed
 - reap child shell processes with a dedicated `wait()` thread to prevent zombie processes accumulating on tab open and pane split
 
