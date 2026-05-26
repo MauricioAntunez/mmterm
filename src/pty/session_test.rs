@@ -1,4 +1,5 @@
 use crossbeam_channel::unbounded;
+use std::time::{Duration, Instant};
 
 use super::PtySession;
 
@@ -53,4 +54,60 @@ fn cwd_returns_path_or_none_after_spawn() {
         .expect("spawn failed");
     // May return None on non-Linux; just assert no panic.
     let _ = session.cwd();
+}
+
+/// Verify that a child process does not become a zombie after it exits.
+///
+/// Without the reaper thread in `spawn_with_shell`, every shell spawned for a
+/// tab or pane split would remain in state Z (zombie) in the kernel's process
+/// table until mmterm itself exited.  This test spawns `/bin/true` (exits
+/// immediately), then polls `/proc/<pid>/status` until the entry disappears or
+/// up to a 2-second deadline.  Finding state `Z` at any point is a failure;
+/// a missing `/proc` entry means the process was fully reaped.
+///
+/// Only meaningful on Linux where `/proc` is available; the test is a no-op on
+/// other platforms.
+#[test]
+#[cfg(target_os = "linux")]
+fn no_zombie_after_child_exits() {
+    let (tx, _rx) = unbounded();
+    let session = PtySession::spawn_with_shell(80, 24, tx, "/bin/true", None, Box::new(|| {}))
+        .expect("spawn failed");
+
+    let pid = match session.pid() {
+        Some(p) => p,
+        None => return, // PID unavailable — skip
+    };
+
+    let status_path = format!("/proc/{pid}/status");
+    let deadline = Instant::now() + Duration::from_secs(2);
+
+    loop {
+        match std::fs::read_to_string(&status_path) {
+            Err(_) => {
+                // /proc entry gone — process fully reaped, test passes.
+                return;
+            }
+            Ok(contents) => {
+                // The State line looks like "State:\tZ (zombie)".
+                let is_zombie = contents
+                    .lines()
+                    .find(|l| l.starts_with("State:"))
+                    .map(|l| l.contains('Z'))
+                    .unwrap_or(false);
+
+                assert!(
+                    !is_zombie,
+                    "child process {pid} is a zombie — reaper thread did not call wait()"
+                );
+            }
+        }
+
+        assert!(
+            Instant::now() < deadline,
+            "child process {pid} was not reaped within 2 seconds"
+        );
+
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }

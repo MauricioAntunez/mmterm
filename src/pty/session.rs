@@ -41,11 +41,34 @@ impl PtySession {
             cmd.cwd(dir);
         }
 
-        let child = slave.spawn_command(cmd)?;
+        let mut child = slave.spawn_command(cmd)?;
         let child_pid = child.process_id();
+
         // Drop the slave fd now — once the shell process exits and closes its
         // copy, the master reader will get EIO/EOF, which lets us detect exit.
         drop(slave);
+
+        // --- Zombie reaper ---
+        // A process becomes a zombie (state Z in /proc/<pid>/status) when it
+        // exits but its parent has not yet called waitpid(2) to collect the
+        // exit status.  The kernel keeps the process table entry alive until
+        // the parent reaps it, so an un-reaped child occupies a PID slot
+        // indefinitely.
+        //
+        // In mmterm each tab and each pane split spawns one child shell.
+        // Without an explicit wait the shells linger as zombies for the entire
+        // lifetime of the application.
+        //
+        // We cannot call wait() on the main thread (it would block the event
+        // loop) and we do not own a SIGCHLD handler, so we dedicate one
+        // lightweight thread per session whose only job is to block on
+        // child.wait() and then exit.  The thread is cheap — it spends almost
+        // all of its life parked in the kernel — and it guarantees the child
+        // is reaped promptly when the shell exits for any reason (user `exit`,
+        // Ctrl-D, pane close, tab close, or crash).
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
 
         let mut reader = master.try_clone_reader()?;
         thread::spawn(move || {
@@ -70,6 +93,11 @@ impl PtySession {
             master,
             child_pid,
         })
+    }
+
+    /// Returns the OS PID of the child shell, if known.
+    pub fn pid(&self) -> Option<u32> {
+        self.child_pid
     }
 
     /// Returns the CWD of the shell process by reading /proc/<pid>/cwd.

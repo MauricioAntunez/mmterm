@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- reap child shell processes with a dedicated `wait()` thread to prevent zombie processes accumulating on tab open and pane split
+
 ### Documentation
 - add kimun code quality gates to workflow: `.kimun.toml` config and `doc/LLMs.md` section
 
