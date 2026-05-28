@@ -240,6 +240,56 @@ fn exit_alternate_screen_when_not_active_is_noop() {
 }
 
 #[test]
+fn exit_alternate_screen_after_resize_clamps_cursor_and_refits_cells() {
+    // Reproduce the panic: enter alt screen at 79×30, resize to 80×30 while in alt
+    // screen, then exit — without the fix this causes an index-out-of-bounds panic
+    // on the next cell access because saved.cells.len()=2370 but self.cols=80.
+    let mut g = make_grid(79, 30);
+    // Place a character so there is content to verify after restore.
+    g.write_char('X');
+    g.enter_alternate_screen();
+    // Simulate a resize while the alternate screen is active.
+    g.resize(80, 30);
+    // Exiting must not panic and must produce a valid, fully-accessible grid.
+    g.exit_alternate_screen();
+    assert_eq!(g.cols, 80);
+    assert_eq!(g.rows, 30);
+    assert_eq!(g.cells.len(), 80 * 30);
+    // Cursor must be within bounds.
+    assert!(g.cursor_col < g.cols);
+    assert!(g.cursor_row < g.rows);
+    // Every cell must be accessible without panicking.
+    for r in 0..g.rows {
+        for c in 0..g.cols {
+            let _ = g.cell(c, r);
+        }
+    }
+}
+
+#[test]
+fn exit_alternate_screen_after_shrink_clamps_cursor_and_refits_cells() {
+    // Same scenario but the terminal shrinks while vim is open.
+    let mut g = make_grid(80, 31);
+    // Move cursor to the last row so saved.cursor_row is at the boundary.
+    for _ in 0..30 {
+        g.write_char('\n');
+    }
+    g.enter_alternate_screen();
+    g.resize(79, 30);
+    g.exit_alternate_screen();
+    assert_eq!(g.cols, 79);
+    assert_eq!(g.rows, 30);
+    assert_eq!(g.cells.len(), 79 * 30);
+    assert!(g.cursor_col < g.cols);
+    assert!(g.cursor_row < g.rows);
+    for r in 0..g.rows {
+        for c in 0..g.cols {
+            let _ = g.cell(c, r);
+        }
+    }
+}
+
+#[test]
 fn cell_default_is_space_with_standard_colors() {
     let c = Cell::default();
     assert_eq!(c.c, ' ');

@@ -98,6 +98,8 @@ struct SavedCursor {
 
 struct SavedScreen {
     cells: Vec<Cell>,
+    cols: usize,
+    rows: usize,
     cursor_col: usize,
     cursor_row: usize,
     cursor_visible: bool,
@@ -270,6 +272,8 @@ impl Grid {
         let blank = self.blank_cell();
         self.alternate_saved = Some(SavedScreen {
             cells: std::mem::replace(&mut self.cells, vec![blank; self.cols * self.rows]),
+            cols: self.cols,
+            rows: self.rows,
             cursor_col: self.cursor_col,
             cursor_row: self.cursor_row,
             cursor_visible: self.cursor_visible,
@@ -310,12 +314,27 @@ impl Grid {
 
     pub fn exit_alternate_screen(&mut self) {
         if let Some(saved) = self.alternate_saved.take() {
-            self.cells = saved.cells;
-            self.cursor_col = saved.cursor_col;
-            self.cursor_row = saved.cursor_row;
+            // The terminal may have been resized while in alternate screen.
+            // Refit the saved main-screen cells to the current dimensions.
+            if saved.cols == self.cols && saved.rows == self.rows {
+                self.cells = saved.cells;
+            } else {
+                let blank = self.blank_cell();
+                let mut cells = vec![blank; self.cols * self.rows];
+                let copy_cols = saved.cols.min(self.cols);
+                let copy_rows = saved.rows.min(self.rows);
+                for r in 0..copy_rows {
+                    for c in 0..copy_cols {
+                        cells[r * self.cols + c] = saved.cells[r * saved.cols + c].clone();
+                    }
+                }
+                self.cells = cells;
+            }
+            self.cursor_col = saved.cursor_col.min(self.cols.saturating_sub(1));
+            self.cursor_row = saved.cursor_row.min(self.rows.saturating_sub(1));
             self.cursor_visible = saved.cursor_visible;
-            self.scroll_top = saved.scroll_top;
-            self.scroll_bottom = saved.scroll_bottom;
+            self.scroll_top = saved.scroll_top.min(self.rows.saturating_sub(1));
+            self.scroll_bottom = saved.scroll_bottom.min(self.rows.saturating_sub(1));
             self.fg = saved.fg;
             self.bg = saved.bg;
             self.bold = saved.bold;

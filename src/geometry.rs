@@ -68,7 +68,11 @@ pub fn cell_url_at_scroll(
     row: usize,
 ) -> Option<std::sync::Arc<String>> {
     if scroll_offset == 0 {
-        grid.cell(col, row).url.clone()
+        if col < grid.cols && row < grid.rows {
+            grid.cell(col, row).url.clone()
+        } else {
+            None
+        }
     } else {
         scrollback_cell(grid, scroll_offset, col, row)?.url.clone()
     }

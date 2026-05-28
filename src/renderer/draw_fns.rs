@@ -28,7 +28,10 @@ pub(super) static BLANK_CELL: Cell = Cell {
 
 pub(super) fn get_cell(grid: &Grid, scroll_offset: usize, row: usize, col: usize) -> &Cell {
     if scroll_offset == 0 {
-        return grid.cell(col, row);
+        if col < grid.cols && row < grid.rows {
+            return grid.cell(col, row);
+        }
+        return &BLANK_CELL;
     }
     let sb_len = grid.scrollback.len();
     let sb_start = sb_len.saturating_sub(scroll_offset);
