@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-27
+
 ### Fixed
 - panic (index out of bounds) when closing a full-screen app (e.g. vim `:q!`) after resizing the terminal while the app was open; `exit_alternate_screen` now refits the saved main-screen cell buffer and clamps cursor/scroll-region to current dimensions
 

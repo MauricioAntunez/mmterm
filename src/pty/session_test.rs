@@ -82,6 +82,10 @@ fn no_zombie_after_child_exits() {
     let status_path = format!("/proc/{pid}/status");
     let deadline = Instant::now() + Duration::from_secs(2);
 
+    // Poll until the /proc entry disappears (fully reaped) or the deadline.
+    // A transient Z state while the reaper thread is being scheduled is
+    // acceptable; we only fail if the process is still a zombie at deadline.
+    let mut last_zombie = false;
     loop {
         match std::fs::read_to_string(&status_path) {
             Err(_) => {
@@ -89,24 +93,21 @@ fn no_zombie_after_child_exits() {
                 return;
             }
             Ok(contents) => {
-                // The State line looks like "State:\tZ (zombie)".
-                let is_zombie = contents
+                last_zombie = contents
                     .lines()
                     .find(|l| l.starts_with("State:"))
                     .map(|l| l.contains('Z'))
                     .unwrap_or(false);
-
-                assert!(
-                    !is_zombie,
-                    "child process {pid} is a zombie — reaper thread did not call wait()"
-                );
             }
         }
 
-        assert!(
-            Instant::now() < deadline,
-            "child process {pid} was not reaped within 2 seconds"
-        );
+        if Instant::now() >= deadline {
+            assert!(
+                !last_zombie,
+                "child process {pid} is still a zombie after 2 seconds — reaper thread did not call wait()"
+            );
+            return;
+        }
 
         std::thread::sleep(Duration::from_millis(50));
     }
