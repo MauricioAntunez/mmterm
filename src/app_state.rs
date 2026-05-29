@@ -51,6 +51,7 @@ pub enum AppEffect {
     SendToPty(Vec<u8>),
     Paste,
     ResizePane { split_h: bool, delta: f32 },
+    RotatePanes(bool),
     SaveSessionAndQuit,
 }
 
@@ -683,6 +684,14 @@ impl AppState {
             Action::ZoomPane => {
                 self.do_zoom_pane();
                 vec![AppEffect::Redraw]
+            }
+            Action::RotatePanesForward => {
+                self.tabs[self.active_tab].zoomed = false;
+                vec![AppEffect::RotatePanes(true)]
+            }
+            Action::RotatePanesBackward => {
+                self.tabs[self.active_tab].zoomed = false;
+                vec![AppEffect::RotatePanes(false)]
             }
             Action::Quit => self.do_quit(),
             Action::QuitSaveSession => vec![AppEffect::SaveSessionAndQuit],

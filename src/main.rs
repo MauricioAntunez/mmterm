@@ -544,6 +544,7 @@ impl App {
                 AppEffect::ToggleLog => self.do_toggle_log(),
                 AppEffect::SendToPty(bytes) => self.do_send_to_pty(bytes),
                 AppEffect::Paste => self.do_paste(),
+                AppEffect::RotatePanes(forward) => self.do_rotate_panes(forward),
             }
         }
         let focus_after = (
@@ -601,6 +602,13 @@ impl App {
         if let Some(w) = &self.window {
             w.request_redraw();
         }
+    }
+
+    fn do_rotate_panes(&mut self, forward: bool) {
+        let ai = self.state.active_tab;
+        self.state.tabs[ai].layout.rotate_leaves(forward);
+        Self::sync_pane_sizes_tab(&mut self.state.tabs[ai]);
+        self.request_redraw();
     }
 
     fn do_toggle_log(&mut self) {

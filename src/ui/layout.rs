@@ -61,6 +61,19 @@ impl Node {
         }
     }
 
+    fn apply_leaf_ids(&mut self, ids: &[usize], cursor: &mut usize) {
+        match self {
+            Node::Leaf(id) => {
+                *id = ids[*cursor];
+                *cursor += 1;
+            }
+            Node::Split { a, b, .. } => {
+                a.apply_leaf_ids(ids, cursor);
+                b.apply_leaf_ids(ids, cursor);
+            }
+        }
+    }
+
     fn compute_rects(&self, x: u32, y: u32, w: u32, h: u32, out: &mut Vec<(usize, [u32; 4])>) {
         match self {
             Node::Leaf(id) => out.push((*id, [x, y, w, h])),
@@ -357,6 +370,24 @@ impl Layout {
     /// the horizontal (`split_h = true`) or vertical axis.
     pub fn nudge_pane(&mut self, pane_id: usize, split_h: bool, delta: f32) {
         self.root.nudge(pane_id, split_h, delta);
+    }
+
+    /// Rotate pane IDs within the layout tree in DFS order.
+    /// `forward = true`: last pane moves to first slot (Ctrl-W r).
+    /// `forward = false`: first pane moves to last slot (Ctrl-W R).
+    /// No-op when there is only one pane.
+    pub fn rotate_leaves(&mut self, forward: bool) {
+        let mut ids = self.root.leaves();
+        if ids.len() < 2 {
+            return;
+        }
+        if forward {
+            ids.rotate_right(1);
+        } else {
+            ids.rotate_left(1);
+        }
+        let mut cursor = 0;
+        self.root.apply_leaf_ids(&ids, &mut cursor);
     }
 
     /// Find the pane spatially closest to `from` in direction `dx, dy`.

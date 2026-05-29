@@ -531,3 +531,91 @@ fn best_dir_candidate_returns_current_when_farther() {
     let best = best_dir_candidate(1, &rect_far, from_cx, from_cy, 1, 0, existing);
     assert_eq!(best.map(|(id, _)| id), Some(99));
 }
+
+// ── rotate_leaves ─────────────────────────────────────────────────────────────
+
+#[test]
+fn rotate_forward_single_pane_is_noop() {
+    let mut layout = Layout::new(0, W, H);
+    layout.rotate_leaves(true);
+    assert_eq!(layout.leaves(), vec![0]);
+}
+
+#[test]
+fn rotate_backward_single_pane_is_noop() {
+    let mut layout = Layout::new(0, W, H);
+    layout.rotate_leaves(false);
+    assert_eq!(layout.leaves(), vec![0]);
+}
+
+#[test]
+fn rotate_forward_two_panes_swaps() {
+    // Split(H, Leaf(0), Leaf(1)) — DFS order [0, 1]
+    // forward → rotate_right(1) → [1, 0]
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.rotate_leaves(true);
+    assert_eq!(layout.leaves(), vec![1, 0]);
+}
+
+#[test]
+fn rotate_backward_two_panes_swaps() {
+    // forward and backward are symmetric for 2 panes
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.rotate_leaves(false);
+    assert_eq!(layout.leaves(), vec![1, 0]);
+}
+
+#[test]
+fn rotate_forward_three_panes() {
+    // Split(H, Leaf(0), Split(V, Leaf(1), Leaf(2))) — DFS order [0, 1, 2]
+    // forward → rotate_right(1) → [2, 0, 1]
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.split(1, 2, SplitDir::V);
+    layout.rotate_leaves(true);
+    assert_eq!(layout.leaves(), vec![2, 0, 1]);
+}
+
+#[test]
+fn rotate_backward_three_panes() {
+    // DFS order [0, 1, 2]
+    // backward → rotate_left(1) → [1, 2, 0]
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.split(1, 2, SplitDir::V);
+    layout.rotate_leaves(false);
+    assert_eq!(layout.leaves(), vec![1, 2, 0]);
+}
+
+#[test]
+fn rotate_forward_twice_returns_to_original_for_two_panes() {
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.rotate_leaves(true);
+    layout.rotate_leaves(true);
+    assert_eq!(layout.leaves(), vec![0, 1]);
+}
+
+#[test]
+fn rotate_forward_then_backward_is_identity() {
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    layout.split(1, 2, SplitDir::V);
+    let before = layout.leaves();
+    layout.rotate_leaves(true);
+    layout.rotate_leaves(false);
+    assert_eq!(layout.leaves(), before);
+}
+
+#[test]
+fn rotate_preserves_geometry() {
+    // Rotating IDs must not change the rect geometry (only which ID occupies which slot)
+    let mut layout = Layout::new(0, W, H);
+    layout.split(0, 1, SplitDir::H);
+    let rects_before: Vec<[u32; 4]> = layout.rects().into_iter().map(|(_, r)| r).collect();
+    layout.rotate_leaves(true);
+    let rects_after: Vec<[u32; 4]> = layout.rects().into_iter().map(|(_, r)| r).collect();
+    assert_eq!(rects_before, rects_after);
+}

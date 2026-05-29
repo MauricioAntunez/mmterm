@@ -64,6 +64,22 @@ fn ctrl_w_z_zooms_pane() {
 }
 
 #[test]
+fn ctrl_w_r_rotates_forward() {
+    assert!(matches!(
+        ctrl_w_action(&char_key("r")),
+        Action::RotatePanesForward
+    ));
+}
+
+#[test]
+fn ctrl_w_uppercase_r_rotates_backward() {
+    assert!(matches!(
+        ctrl_w_action(&char_key("R")),
+        Action::RotatePanesBackward
+    ));
+}
+
+#[test]
 fn ctrl_w_uppercase_v_splits_horizontal() {
     assert!(matches!(ctrl_w_action(&char_key("V")), Action::SplitH));
 }

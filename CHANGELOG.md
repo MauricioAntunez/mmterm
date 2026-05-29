@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- pane rotation: `Ctrl-W r` rotates panes forward (last → first slot) and `Ctrl-W R` rotates backward, like tmux
+
 ## [0.4.1] - 2026-05-27
 
 ### Fixed

@@ -22,6 +22,8 @@ pub enum Action {
     FocusNext,
     ClosePane,
     ZoomPane,
+    RotatePanesForward,
+    RotatePanesBackward,
     ToggleFullscreen,
     CtrlWPrefix,
     OpenConfig,
@@ -269,19 +271,25 @@ fn handle_global_shortcuts(
 
 pub(crate) fn ctrl_w_action(key: &Key) -> Action {
     match key {
-        Key::Character(s) => match s.to_lowercase().as_str() {
-            "v" => Action::SplitH,
-            "s" => Action::SplitV,
-            "a" => Action::AutoSplit,
-            "h" => Action::FocusLeft,
-            "l" => Action::FocusRight,
-            "k" => Action::FocusUp,
-            "j" => Action::FocusDown,
-            "w" => Action::FocusNext,
-            "q" => Action::ClosePane,
-            "z" => Action::ZoomPane,
-            _ => Action::None,
-        },
+        Key::Character(s) => {
+            if s.as_str() == "R" {
+                return Action::RotatePanesBackward;
+            }
+            match s.to_lowercase().as_str() {
+                "v" => Action::SplitH,
+                "s" => Action::SplitV,
+                "a" => Action::AutoSplit,
+                "h" => Action::FocusLeft,
+                "l" => Action::FocusRight,
+                "k" => Action::FocusUp,
+                "j" => Action::FocusDown,
+                "w" => Action::FocusNext,
+                "q" => Action::ClosePane,
+                "z" => Action::ZoomPane,
+                "r" => Action::RotatePanesForward,
+                _ => Action::None,
+            }
+        }
         Key::Named(NamedKey::ArrowLeft) => Action::FocusLeft,
         Key::Named(NamedKey::ArrowRight) => Action::FocusRight,
         Key::Named(NamedKey::ArrowUp) => Action::FocusUp,
