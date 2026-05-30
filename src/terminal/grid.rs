@@ -610,9 +610,6 @@ impl Grid {
 
     fn make_char_cell(&self, c: char, wide: bool) -> Cell {
         Cell {
-            c,
-            fg: self.fg,
-            bg: self.bg,
             bold: self.bold,
             dim: self.dim,
             italic: self.italic,
@@ -622,8 +619,8 @@ impl Grid {
             reverse: self.reverse,
             blink: self.blink,
             wide,
-            wide_cont: false,
             url: self.current_url.clone(),
+            ..cell_with_colors(c, self.fg, self.bg)
         }
     }
 
