@@ -990,3 +990,57 @@ fn live_grid_reflow_hard_wrapped_rows_not_joined() {
     assert_eq!(row0_start, 'A');
     assert_eq!(row1_start, 'C', "CD must remain on its own row after widen");
 }
+
+// ── cell_with_colors ─────────────────────────────────────────────────────────
+
+#[test]
+fn cell_with_colors_sets_fields_correctly() {
+    let c = cell_with_colors('X', Color::rgb(1, 2, 3), Color::rgb(4, 5, 6));
+    assert_eq!(c.c, 'X');
+    assert_eq!(c.fg.r, 1);
+    assert_eq!(c.bg.b, 6);
+    assert!(!c.bold && !c.italic && !c.underline && !c.wide && c.url.is_none());
+}
+
+// ── max_row / max_col ────────────────────────────────────────────────────────
+
+#[test]
+fn max_row_max_col_return_saturating_values() {
+    let g = make_grid(80, 24);
+    assert_eq!(g.max_row(), 23);
+    assert_eq!(g.max_col(), 79);
+}
+
+#[test]
+fn max_row_zero_rows_returns_zero() {
+    // Can't construct a 0-row grid normally, but the method must not panic.
+    // Test via the formula: rows=1 → max_row=0.
+    let g = make_grid(1, 1);
+    assert_eq!(g.max_row(), 0);
+}
+
+// ── reposition_cursor_after_reflow ───────────────────────────────────────────
+
+#[test]
+fn reposition_cursor_after_reflow_first_chunk() {
+    // cursor_lc=2, new_cols=5, first_row=0, chunk_count=2
+    // ci = (2/5).min(1) = 0, col = (2%5).min(4) = 2
+    let (row, col) = Grid::reposition_cursor_after_reflow(2, 5, 0, 2);
+    assert_eq!((row, col), (0, 2));
+}
+
+#[test]
+fn reposition_cursor_after_reflow_second_chunk() {
+    // cursor_lc=7, new_cols=5, first_row=3, chunk_count=2
+    // ci = (7/5).min(1) = 1, col = (7%5).min(4) = 2
+    let (row, col) = Grid::reposition_cursor_after_reflow(7, 5, 3, 2);
+    assert_eq!((row, col), (4, 2));
+}
+
+#[test]
+fn reposition_cursor_after_reflow_clamps_chunk() {
+    // cursor_lc=100, new_cols=5, chunk_count=1 → ci clamped to 0
+    let (row, col) = Grid::reposition_cursor_after_reflow(100, 5, 0, 1);
+    assert_eq!(row, 0);
+    assert!(col <= 4);
+}

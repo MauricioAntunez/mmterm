@@ -1,4 +1,8 @@
 use super::grid::{Color, CursorShape, Grid, GridColors};
+
+fn param_or_one(p: u16) -> usize {
+    p.max(1) as usize
+}
 use super::sixel::SixelDecoder;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -197,7 +201,7 @@ impl Performer<'_> {
     }
 
     fn handle_char_ops(&mut self, action: char, p0: u16) {
-        let n = p0.max(1) as usize;
+        let n = param_or_one(p0);
         let row = self.grid.cursor_row;
         let col = self.grid.cursor_col;
         let cols = self.grid.cols;
@@ -215,13 +219,13 @@ impl Performer<'_> {
     }
 
     fn handle_scroll_region(&mut self, p0: u16, p1: u16) {
-        let top = (p0.saturating_sub(1) as usize).min(self.grid.rows - 1);
+        let top = (p0.saturating_sub(1) as usize).min(self.grid.max_row());
         let bot = if p1 == 0 {
-            self.grid.rows - 1
+            self.grid.max_row()
         } else {
             (p1 - 1) as usize
         }
-        .min(self.grid.rows - 1);
+        .min(self.grid.max_row());
         self.grid.scroll_top = top;
         self.grid.scroll_bottom = bot;
         self.grid.cursor_row = top;
@@ -245,7 +249,7 @@ impl Perform for Performer<'_> {
             0x09 => {
                 // tab: advance to next 8-column boundary
                 let next = (self.grid.cursor_col / 8 + 1) * 8;
-                self.grid.cursor_col = next.min(self.grid.cols - 1);
+                self.grid.cursor_col = next.min(self.grid.max_col());
             }
             _ => {}
         }
@@ -262,35 +266,29 @@ impl Perform for Performer<'_> {
         }
 
         match action {
-            'A' => {
-                let n = p0.max(1) as usize;
-                self.grid.cursor_row = self.grid.cursor_row.saturating_sub(n);
-            }
+            'A' => self.grid.cursor_row = self.grid.cursor_row.saturating_sub(param_or_one(p0)),
             'B' => {
-                let n = p0.max(1) as usize;
-                self.grid.cursor_row = (self.grid.cursor_row + n).min(self.grid.rows - 1);
+                self.grid.cursor_row =
+                    (self.grid.cursor_row + param_or_one(p0)).min(self.grid.max_row());
             }
             'C' => {
-                let n = p0.max(1) as usize;
-                self.grid.cursor_col = (self.grid.cursor_col + n).min(self.grid.cols - 1);
+                self.grid.cursor_col =
+                    (self.grid.cursor_col + param_or_one(p0)).min(self.grid.max_col());
             }
-            'D' => {
-                let n = p0.max(1) as usize;
-                self.grid.cursor_col = self.grid.cursor_col.saturating_sub(n);
-            }
+            'D' => self.grid.cursor_col = self.grid.cursor_col.saturating_sub(param_or_one(p0)),
             // Cursor position (row;col, 1-indexed)
             'H' | 'f' => {
-                self.grid.cursor_row = (p0.saturating_sub(1) as usize).min(self.grid.rows - 1);
-                self.grid.cursor_col = (p1.saturating_sub(1) as usize).min(self.grid.cols - 1);
+                self.grid.cursor_row = (p0.saturating_sub(1) as usize).min(self.grid.max_row());
+                self.grid.cursor_col = (p1.saturating_sub(1) as usize).min(self.grid.max_col());
             }
             'J' => self.handle_erase_display(p0),
             'K' => self.handle_erase_line(p0),
             'm' => self.handle_sgr(&ps),
-            'S' => self.grid.scroll_up(p0.max(1) as usize),
-            'T' => self.grid.scroll_down(p0.max(1) as usize),
+            'S' => self.grid.scroll_up(param_or_one(p0)),
+            'T' => self.grid.scroll_down(param_or_one(p0)),
             // Insert Line
             'L' => {
-                let n = p0.max(1) as usize;
+                let n = param_or_one(p0);
                 let saved_top = self.grid.scroll_top;
                 self.grid.scroll_top = self.grid.cursor_row;
                 self.grid.scroll_down(n);
@@ -299,7 +297,7 @@ impl Perform for Performer<'_> {
             }
             // Delete Line
             'M' => {
-                let n = p0.max(1) as usize;
+                let n = param_or_one(p0);
                 let saved_top = self.grid.scroll_top;
                 self.grid.scroll_top = self.grid.cursor_row;
                 self.grid.scroll_up(n);
@@ -308,9 +306,9 @@ impl Perform for Performer<'_> {
             }
             'P' | '@' | 'X' => self.handle_char_ops(action, p0),
             // CHA: cursor horizontal absolute (1-indexed)
-            'G' => self.grid.cursor_col = (p0.saturating_sub(1) as usize).min(self.grid.cols - 1),
+            'G' => self.grid.cursor_col = (p0.saturating_sub(1) as usize).min(self.grid.max_col()),
             // VPA: vertical position absolute (1-indexed)
-            'd' => self.grid.cursor_row = (p0.saturating_sub(1) as usize).min(self.grid.rows - 1),
+            'd' => self.grid.cursor_row = (p0.saturating_sub(1) as usize).min(self.grid.max_row()),
             // DSR: respond with cursor position (CSI 6 n → CSI row;col R)
             'n' if p0 == 6 => {
                 let resp = format!(

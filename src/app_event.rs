@@ -83,26 +83,24 @@ impl App {
                 return;
             };
 
+        let filtered = command_palette::filter(&query);
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
                 self.state.mode = InputMode::Insert;
             }
             Key::Named(NamedKey::ArrowUp) => {
-                let n = command_palette::filter(&query).len();
                 self.state.mode = InputMode::CommandPalette {
                     query,
-                    selected: palette_move_selection(selected, n, true),
+                    selected: palette_move_selection(selected, filtered.len(), true),
                 };
             }
             Key::Named(NamedKey::ArrowDown) => {
-                let n = command_palette::filter(&query).len();
                 self.state.mode = InputMode::CommandPalette {
                     query,
-                    selected: palette_move_selection(selected, n, false),
+                    selected: palette_move_selection(selected, filtered.len(), false),
                 };
             }
             Key::Named(NamedKey::Enter) => {
-                let filtered = command_palette::filter(&query);
                 self.state.mode = InputMode::Insert;
                 if let Some(&entry_idx) = filtered.get(selected) {
                     let action = command_palette::entry_action(entry_idx);

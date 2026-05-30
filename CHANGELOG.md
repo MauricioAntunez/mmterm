@@ -9,6 +9,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - visual mode selection spanning multiple pages now copies all selected lines; previously `start_row` was clamped to the viewport height, so only the last page of a multi-page selection was copied
 
 ### Changed
+- refactor grid.rs: extract `cell_with_colors`, `max_row`/`max_col`, `reposition_cursor_after_reflow`; replace duplicate SGR reset blocks with `reset_sgr()` calls to reduce Halstead effort
+- refactor parser.rs: extract `param_or_one` helper; use `grid.max_row()`/`max_col()` in `csi_dispatch` and scroll-region handling
+- refactor app_event.rs: eliminate double `command_palette::filter` lookup; simplify screenshot name mode reconstruction
+- refactor draw_fns.rs: simplify `get_cell` fallback paths from 4 returns to 2
 - refactor: extract `collapse_indicator`, `config_panel_hint`, `panel_font_metrics`, and `draw_config_section_header` helpers in `renderer/overlays.rs` to reduce cognitive complexity (D+ → B)
 - refactor: unify `jump_section_forward`/`jump_section_backward` into a shared private `jump_section` method in `tui_config.rs`
 - refactor: move CLI argument-parsing functions to `src/cli.rs`; extract `session_path()` method and `bell_flash_intensity()` free function from `main.rs`
