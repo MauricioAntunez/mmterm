@@ -28,23 +28,18 @@ pub(super) static BLANK_CELL: Cell = Cell {
 
 pub(super) fn get_cell(grid: &Grid, scroll_offset: usize, row: usize, col: usize) -> &Cell {
     if scroll_offset == 0 {
-        if col < grid.cols && row < grid.rows {
-            return grid.cell(col, row);
-        }
-        return &BLANK_CELL;
-    }
-    let sb_len = grid.scrollback.len();
-    let sb_start = sb_len.saturating_sub(scroll_offset);
-    let sb_row = sb_start + row;
-    if sb_row < sb_len {
-        let line = &grid.scrollback[sb_row];
-        if col < line.len() {
-            &line[col]
+        return if col < grid.cols && row < grid.rows {
+            grid.cell(col, row)
         } else {
             &BLANK_CELL
-        }
+        };
+    }
+    let sb_len = grid.scrollback.len();
+    let sb_row = sb_len.saturating_sub(scroll_offset) + row;
+    if sb_row < sb_len {
+        grid.scrollback[sb_row].get(col).unwrap_or(&BLANK_CELL)
     } else {
-        let live_row = sb_row.saturating_sub(sb_len);
+        let live_row = sb_row - sb_len;
         if live_row < grid.rows {
             grid.cell(col, live_row)
         } else {

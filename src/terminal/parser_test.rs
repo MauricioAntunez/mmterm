@@ -1192,3 +1192,16 @@ fn dcs_multiple_sixel_images_accumulate() {
     p.process(b"\x1bP0;0;0q@\x1b\\");
     assert_eq!(p.grid.images.len(), 2, "two images should accumulate");
 }
+
+// ── param_or_one ─────────────────────────────────────────────────────────────
+
+#[test]
+fn param_or_one_zero_returns_one() {
+    assert_eq!(super::param_or_one(0), 1);
+}
+
+#[test]
+fn param_or_one_nonzero_returns_value() {
+    assert_eq!(super::param_or_one(5), 5);
+    assert_eq!(super::param_or_one(100), 100);
+}

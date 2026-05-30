@@ -81,6 +81,25 @@ impl Default for Cell {
     }
 }
 
+fn cell_with_colors(c: char, fg: Color, bg: Color) -> Cell {
+    Cell {
+        c,
+        fg,
+        bg,
+        bold: false,
+        dim: false,
+        italic: false,
+        underline: false,
+        strikethrough: false,
+        overline: false,
+        reverse: false,
+        blink: false,
+        wide: false,
+        wide_cont: false,
+        url: None,
+    }
+}
+
 struct SavedCursor {
     col: usize,
     row: usize,
@@ -210,22 +229,7 @@ impl Grid {
             selection: selection_color,
             palette,
         } = colors;
-        let blank = Cell {
-            c: ' ',
-            fg: default_fg,
-            bg: default_bg,
-            bold: false,
-            dim: false,
-            italic: false,
-            underline: false,
-            strikethrough: false,
-            overline: false,
-            reverse: false,
-            blink: false,
-            wide: false,
-            wide_cont: false,
-            url: None,
-        };
+        let blank = cell_with_colors(' ', default_fg, default_bg);
         Self {
             cols,
             rows,
@@ -310,16 +314,7 @@ impl Grid {
         self.cursor_shape = CursorShape::Block;
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
-        self.fg = self.default_fg;
-        self.bg = self.default_bg;
-        self.bold = false;
-        self.dim = false;
-        self.italic = false;
-        self.underline = false;
-        self.strikethrough = false;
-        self.overline = false;
-        self.reverse = false;
-        self.blink = false;
+        self.reset_sgr();
         self.charset_drawing = false;
         self.images.clear();
     }
@@ -342,11 +337,11 @@ impl Grid {
                 }
                 self.cells = cells;
             }
-            self.cursor_col = saved.cursor_col.min(self.cols.saturating_sub(1));
-            self.cursor_row = saved.cursor_row.min(self.rows.saturating_sub(1));
+            self.cursor_col = saved.cursor_col.min(self.max_col());
+            self.cursor_row = saved.cursor_row.min(self.max_row());
             self.cursor_visible = saved.cursor_visible;
-            self.scroll_top = saved.scroll_top.min(self.rows.saturating_sub(1));
-            self.scroll_bottom = saved.scroll_bottom.min(self.rows.saturating_sub(1));
+            self.scroll_top = saved.scroll_top.min(self.max_row());
+            self.scroll_bottom = saved.scroll_bottom.min(self.max_row());
             self.fg = saved.fg;
             self.bg = saved.bg;
             self.bold = saved.bold;
@@ -484,6 +479,19 @@ impl Grid {
     /// Reflow the live grid to new dimensions. Logical lines are re-split at
     /// `new_cols`; rows that no longer fit spill into scrollback.
     /// Returns the signed change in scrollback length.
+    fn reposition_cursor_after_reflow(
+        cursor_lc: usize,
+        new_cols: usize,
+        first_row: usize,
+        chunk_count: usize,
+    ) -> (usize, usize) {
+        let ci = (cursor_lc / new_cols).min(chunk_count.saturating_sub(1));
+        (
+            first_row + ci,
+            (cursor_lc % new_cols).min(new_cols.saturating_sub(1)),
+        )
+    }
+
     fn reflow_live_grid(&mut self, new_cols: usize, new_rows: usize) -> isize {
         let old_cols = self.cols;
         let old_rows = self.rows;
@@ -515,8 +523,12 @@ impl Grid {
             let first_row = new_rows_data.len();
             let chunks = Self::split_logical_line(line, new_cols, &blank);
             if li == cursor_ll {
-                let ci = (cursor_lc / new_cols).min(chunks.len().saturating_sub(1));
-                new_cursor = (first_row + ci, (cursor_lc % new_cols).min(new_cols - 1));
+                new_cursor = Self::reposition_cursor_after_reflow(
+                    cursor_lc,
+                    new_cols,
+                    first_row,
+                    chunks.len(),
+                );
             }
             new_rows_data.extend(chunks);
         }
@@ -784,45 +796,23 @@ impl Grid {
         }
     }
 
+    pub fn max_row(&self) -> usize {
+        self.rows.saturating_sub(1)
+    }
+
+    pub fn max_col(&self) -> usize {
+        self.cols.saturating_sub(1)
+    }
+
     pub fn blank_cell(&self) -> Cell {
-        Cell {
-            c: ' ',
-            fg: self.default_fg,
-            bg: self.default_bg,
-            bold: false,
-            dim: false,
-            italic: false,
-            underline: false,
-            strikethrough: false,
-            overline: false,
-            reverse: false,
-            blink: false,
-            wide: false,
-            wide_cont: false,
-            url: None,
-        }
+        cell_with_colors(' ', self.default_fg, self.default_bg)
     }
 
     // Erase operations (ED, EL, scroll blank rows) use the current SGR background,
     // not the default — this is the BCE (Background Color Erase) behaviour that
     // xterm and most terminals implement.
     pub fn erase_cell(&self) -> Cell {
-        Cell {
-            c: ' ',
-            fg: self.default_fg,
-            bg: self.bg,
-            bold: false,
-            dim: false,
-            italic: false,
-            underline: false,
-            strikethrough: false,
-            overline: false,
-            reverse: false,
-            blink: false,
-            wide: false,
-            wide_cont: false,
-            url: None,
-        }
+        cell_with_colors(' ', self.default_fg, self.bg)
     }
 
     pub fn clear_line(&mut self, row: usize) {
@@ -892,8 +882,8 @@ impl Grid {
 
     pub fn restore_cursor(&mut self) {
         if let Some(s) = &self.decsc {
-            self.cursor_col = s.col.min(self.cols - 1);
-            self.cursor_row = s.row.min(self.rows - 1);
+            self.cursor_col = s.col.min(self.max_col());
+            self.cursor_row = s.row.min(self.max_row());
             self.fg = s.fg;
             self.bg = s.bg;
             self.bold = s.bold;
@@ -912,13 +902,7 @@ impl Grid {
         // Exit alternate screen first so we reset the primary buffer.
         self.alternate_saved = None;
 
-        let blank = Cell {
-            c: ' ',
-            fg: self.default_fg,
-            bg: self.default_bg,
-            ..Cell::default()
-        };
-        self.cells = vec![blank; self.cols * self.rows];
+        self.cells = vec![self.blank_cell(); self.cols * self.rows];
         self.scrollback.clear();
         self.scrollback_wrapped.clear();
         self.row_wrapped = vec![false; self.rows];
@@ -928,16 +912,7 @@ impl Grid {
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
 
-        self.fg = self.default_fg;
-        self.bg = self.default_bg;
-        self.bold = false;
-        self.dim = false;
-        self.italic = false;
-        self.underline = false;
-        self.strikethrough = false;
-        self.overline = false;
-        self.reverse = false;
-        self.blink = false;
+        self.reset_sgr();
 
         self.decsc = None;
         self.current_url = None;
