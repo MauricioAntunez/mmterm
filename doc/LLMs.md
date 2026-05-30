@@ -111,6 +111,9 @@ struct TabState {
     metrics: FontMetrics,       // session-only, NOT saved to config
     name: Option<String>,
     zoomed: bool,               // session-only, NOT saved to config
+    bell_flash_start: Option<Instant>,   // set on BEL; drives fade intensity
+    bell_flash_until: Option<Instant>,   // expiry for next_bell_wakeup scheduling
+    bell_cooldown_until: Option<Instant>, // 500 ms guard against repeated BELs
 }
 
 struct PaneEntry {

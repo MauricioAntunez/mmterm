@@ -34,6 +34,10 @@ right = "%pwd"
 # When true, quitting shows a prompt: [s] save and quit  [q] quit  [Esc] cancel
 restore_session = true
 
+# Show a screen flash on BEL in addition to the status bar indicator.
+# false = only the status bar "●" dot is shown (default).
+visual_bell = false
+
 [colors]
 background = "#121212"
 foreground = "#a0a0a0"

@@ -79,7 +79,13 @@ pub(super) fn update_tab_after_pane_poll(
         }
         if entry.pane.parser.grid.bell_pending {
             entry.pane.parser.grid.bell_pending = false;
-            tab.bell_flash_until = Some(Instant::now() + std::time::Duration::from_millis(100));
+            let now = Instant::now();
+            let cooled = tab.bell_cooldown_until.is_none_or(|until| now >= until);
+            if cooled {
+                tab.bell_flash_start = Some(now);
+                tab.bell_flash_until = Some(now + std::time::Duration::from_millis(150));
+                tab.bell_cooldown_until = Some(now + std::time::Duration::from_millis(500));
+            }
         }
     }
     if got_data && tab_is_background {

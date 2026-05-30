@@ -228,7 +228,9 @@ impl App {
             name: None,
             zoomed: false,
             has_activity: false,
+            bell_flash_start: None,
             bell_flash_until: None,
+            bell_cooldown_until: None,
             passthrough: false,
         });
         let id = self.spawn_pane_into(tab_idx, initial_rect, cwd);
@@ -776,9 +778,19 @@ impl App {
             cwd_owned.as_deref(),
             &Local::now(),
         );
-        let bell_flash = self.state.tabs[self.state.active_tab]
-            .bell_flash_until
-            .is_some_and(|t| t > Instant::now());
+        const BELL_DURATION_MS: f32 = 150.0;
+        let bell_flash_intensity = self.state.tabs[self.state.active_tab]
+            .bell_flash_start
+            .and_then(|start| {
+                let elapsed_ms = start.elapsed().as_secs_f32() * 1000.0;
+                if elapsed_ms >= BELL_DURATION_MS {
+                    None
+                } else {
+                    let t = elapsed_ms / BELL_DURATION_MS;
+                    // ease-out: 1 - t^2 (fast peak, gradual fade)
+                    Some(1.0 - t * t)
+                }
+            });
         let is_logging = self.state.tabs[self.state.active_tab]
             .panes
             .get(&active_id)
@@ -805,7 +817,8 @@ impl App {
             right_text.as_deref(),
             pane_title,
             self.state.config.window.inactive_dim,
-            bell_flash,
+            bell_flash_intensity,
+            self.state.config.general.visual_bell,
             is_logging,
             &self.state.theme,
         );

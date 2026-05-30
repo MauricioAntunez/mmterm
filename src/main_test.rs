@@ -212,7 +212,9 @@ fn next_bell_wakeup_no_active_bell_returns_default() {
         name: None,
         zoomed: false,
         has_activity: false,
+        bell_flash_start: None,
         bell_flash_until: None,
+        bell_cooldown_until: None,
         passthrough: false,
     };
     let default = Instant::now() + Duration::from_secs(10);
@@ -238,7 +240,9 @@ fn next_bell_wakeup_active_bell_returns_earlier() {
         name: None,
         zoomed: false,
         has_activity: false,
+        bell_flash_start: None,
         bell_flash_until: Some(bell_expiry),
+        bell_cooldown_until: None,
         passthrough: false,
     };
     let default = Instant::now() + Duration::from_secs(10);
@@ -269,7 +273,9 @@ fn next_bell_wakeup_returns_earliest_of_multiple() {
         name: None,
         zoomed: false,
         has_activity: false,
+        bell_flash_start: None,
         bell_flash_until: expiry,
+        bell_cooldown_until: None,
         passthrough: false,
     };
 

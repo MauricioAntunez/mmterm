@@ -78,15 +78,15 @@ pub struct Renderer {
     pub glyphs: GlyphCache,
 }
 
-fn apply_bell_flash(buf: &mut [u32], buf_width: u32, buf_height: u32) {
-    const FLASH_COLOR: u32 = 0xff_ff_ff_ff;
+fn apply_bell_flash(buf: &mut [u32], buf_width: u32, buf_height: u32, color: u32, intensity: f32) {
+    let alpha = (intensity * 55.0).round().clamp(0.0, 255.0) as u8;
     let content_top = TAB_BAR_H;
     let content_bot = buf_height.saturating_sub(STATUS_BAR_H);
     for y in content_top..content_bot {
         for x in 0..buf_width {
             let idx = (y * buf_width + x) as usize;
             if idx < buf.len() {
-                buf[idx] = blend(buf[idx], FLASH_COLOR, 38);
+                buf[idx] = blend(buf[idx], color, alpha);
             }
         }
     }
@@ -124,7 +124,8 @@ impl Renderer {
         right_text: Option<&str>,
         pane_title: Option<&str>,
         inactive_dim: f32,
-        bell_flash: bool,
+        bell_flash_intensity: Option<f32>,
+        visual_bell: bool,
         is_logging: bool,
         theme: &ResolvedTheme,
     ) {
@@ -144,8 +145,14 @@ impl Renderer {
             fill_rect(buf, buf_width, sx, sy, sw, sh, sep_color);
         }
 
-        if bell_flash {
-            apply_bell_flash(buf, buf_width, buf_height);
+        if visual_bell && let Some(intensity) = bell_flash_intensity {
+            apply_bell_flash(
+                buf,
+                buf_width,
+                buf_height,
+                color_u32(theme.foreground),
+                intensity,
+            );
         }
 
         self.draw_tab_bar(buf, buf_width, tab_titles, theme);
@@ -159,6 +166,7 @@ impl Renderer {
             search_current,
             right_text,
             pane_title,
+            bell_flash_intensity.is_some(),
             is_logging,
             theme,
         );
@@ -535,6 +543,7 @@ impl Renderer {
         search_current: usize,
         right_text: Option<&str>,
         pane_title: Option<&str>,
+        bell_active: bool,
         is_logging: bool,
         theme: &ResolvedTheme,
     ) {
@@ -605,6 +614,24 @@ impl Renderer {
                 rec_color,
                 badge_fg,
                 px,
+            );
+        }
+
+        // Show "●" bell indicator when BEL was recently received.
+        if bell_active {
+            let dot = "\u{25cf}";
+            let dot_x = badge_x + badge_w + 4;
+            let dot_y = badge_y + 2;
+            self.draw_str(
+                buf,
+                width,
+                height,
+                dot_x,
+                dot_y,
+                dot,
+                px,
+                false,
+                color_u32(theme.palette[3]),
             );
         }
 

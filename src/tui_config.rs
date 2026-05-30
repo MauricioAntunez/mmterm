@@ -26,6 +26,7 @@ const F_PALETTE: usize = 17; // F_PALETTE + 0..15
 const F_STATUS_BAR_RIGHT: usize = 33;
 const F_RESTORE_SESSION: usize = 34;
 const F_SCREENSHOT_DIR: usize = 35;
+const F_VISUAL_BELL: usize = 36;
 
 const PALETTE_LABELS: [&str; 16] = [
     "Palette 0  black",
@@ -252,6 +253,13 @@ impl ConfigPanel {
             hint: "directory for screenshots; ~ expands to home (e.g. ~/mmterm/shot)",
             value: cfg.general.screenshot_dir.clone(),
             kind: FieldKind::OptText,
+            section: None,
+        });
+        fields.push(Field {
+            label: "Visual Bell",
+            hint: "flash the screen on BEL in addition to the status bar dot",
+            value: cfg.general.visual_bell.to_string(),
+            kind: FieldKind::Bool,
             section: None,
         });
 
@@ -489,6 +497,10 @@ impl ConfigPanel {
 
         let screenshot_dir = get(F_SCREENSHOT_DIR);
 
+        let visual_bell = get(F_VISUAL_BELL)
+            .parse::<bool>()
+            .map_err(|_| "Invalid visual_bell — use true or false")?;
+
         Ok(Config {
             font: FontConfig { family, size },
             window: WindowConfig {
@@ -516,6 +528,7 @@ impl ConfigPanel {
             general: GeneralConfig {
                 restore_session,
                 screenshot_dir,
+                visual_bell,
             },
         })
     }

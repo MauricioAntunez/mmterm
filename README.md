@@ -23,6 +23,7 @@ Renders entirely via a CPU pixel buffer — no GPU, no OpenGL, no Vulkan.
 - **Passthrough mode** — `Ctrl+B` forwards all keystrokes directly to the PTY, bypassing mmterm shortcuts; useful when running vim, tmux, or other apps that share keybindings; status bar shows `INSERT PASS`; press `Ctrl+B` again to exit
 - **Session logging** — capture PTY output per-pane to `~/.mmterm/` with `Ctrl+Shift+L`
 - **Color emoji** — rendered via FreeType CBDT/CBLC
+- **Visual bell** — BEL (0x07) shows a `●` dot next to the mode badge in the status bar for 150 ms; a 500 ms cooldown prevents spam from tab-completion; an optional screen flash is available via `visual_bell = true` in `[general]`
 - **Session persistence** — tabs, splits, and per-pane CWDs are saved on quit and restored on next launch; a centered dialog asks `[s] Save and quit / [q] Quit / [Esc] Cancel`; toggle with `restore_session` in `[general]`
 - **Command palette** — `Ctrl+Shift+P` fuzzy-filter and run any action by name; shows the keyboard shortcut for each entry
 - **TUI config editor** — edit settings in-process with `Ctrl+,`
@@ -179,6 +180,17 @@ A rectangular selection overlay appears centered on the screen.
 | `Esc` | Cancel |
 
 The file is saved as `mmterm-YYYYMMDDTHHMMSS.png` in the directory set by `[general] screenshot_dir` (default `~/mmterm/shot`).
+
+### Visual Bell
+
+BEL (0x07) — sent by the shell on tab-completion with multiple matches, by editors on invalid input, etc. — shows a yellow `●` dot next to the mode badge in the status bar for 150 ms. A 500 ms cooldown suppresses repeated bells so rapid sequences (e.g. pressing Tab twice) only flash once.
+
+To also flash the screen background (Terminator-style), set `visual_bell = true` in `[general]`:
+
+```toml
+[general]
+visual_bell = true   # default: false
+```
 
 ### Scrollback
 

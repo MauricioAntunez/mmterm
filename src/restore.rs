@@ -63,7 +63,9 @@ impl App {
                 name: tab_sess.name.clone(),
                 zoomed: false,
                 has_activity: false,
+                bell_flash_start: None,
                 bell_flash_until: None,
+                bell_cooldown_until: None,
                 passthrough: false,
             });
             let rect = [

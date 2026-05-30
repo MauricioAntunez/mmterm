@@ -29,7 +29,9 @@ fn make_tab() -> TabState {
         name: None,
         zoomed: false,
         has_activity: false,
+        bell_flash_start: None,
         bell_flash_until: None,
+        bell_cooldown_until: None,
         passthrough: false,
     }
 }
@@ -102,8 +104,10 @@ fn bell_pending_sets_bell_flash_until() {
     entry.pane.parser.grid.bell_pending = true;
     tab.panes.insert(1, entry);
     assert!(tab.bell_flash_until.is_none());
+    assert!(tab.bell_flash_start.is_none());
     update_tab_after_pane_poll(&mut tab, 1, false, false, false);
     assert!(tab.bell_flash_until.is_some());
+    assert!(tab.bell_flash_start.is_some());
 }
 
 #[test]
@@ -223,4 +227,41 @@ fn bell_flash_until_is_recent_after_bell() {
     let flash = tab.bell_flash_until.unwrap();
     assert!(flash > before);
     assert!(flash <= after + std::time::Duration::from_millis(200));
+}
+
+#[test]
+fn bell_suppressed_during_cooldown() {
+    let mut tab = make_tab();
+    // Set cooldown active into the future.
+    tab.bell_cooldown_until = Some(Instant::now() + std::time::Duration::from_millis(500));
+    let (mut entry, _tx) = make_pane_entry();
+    entry.pane.parser.grid.bell_pending = true;
+    tab.panes.insert(1, entry);
+    update_tab_after_pane_poll(&mut tab, 1, false, false, false);
+    assert!(tab.bell_flash_until.is_none());
+    assert!(tab.bell_flash_start.is_none());
+}
+
+#[test]
+fn bell_fires_after_cooldown_expires() {
+    let mut tab = make_tab();
+    // Cooldown already expired.
+    tab.bell_cooldown_until = Some(Instant::now() - std::time::Duration::from_millis(1));
+    let (mut entry, _tx) = make_pane_entry();
+    entry.pane.parser.grid.bell_pending = true;
+    tab.panes.insert(1, entry);
+    update_tab_after_pane_poll(&mut tab, 1, false, false, false);
+    assert!(tab.bell_flash_until.is_some());
+}
+
+#[test]
+fn bell_sets_cooldown_until() {
+    let mut tab = make_tab();
+    let (mut entry, _tx) = make_pane_entry();
+    entry.pane.parser.grid.bell_pending = true;
+    tab.panes.insert(1, entry);
+    let before = Instant::now();
+    update_tab_after_pane_poll(&mut tab, 1, false, false, false);
+    let cooldown = tab.bell_cooldown_until.unwrap();
+    assert!(cooldown > before + std::time::Duration::from_millis(400));
 }

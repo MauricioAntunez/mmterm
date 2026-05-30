@@ -53,6 +53,8 @@ pub struct GeneralConfig {
     pub restore_session: bool,
     #[serde(default = "default_screenshot_dir")]
     pub screenshot_dir: String,
+    #[serde(default)]
+    pub visual_bell: bool,
 }
 
 impl Default for GeneralConfig {
@@ -60,6 +62,7 @@ impl Default for GeneralConfig {
         Self {
             restore_session: default_true(),
             screenshot_dir: default_screenshot_dir(),
+            visual_bell: false,
         }
     }
 }

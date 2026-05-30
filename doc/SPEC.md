@@ -355,6 +355,27 @@ restore_session = true   # set to false to disable the save dialog and always qu
 
 Toggling via the TUI config panel (`Ctrl+,`) under the **General** section.
 
+### Visual Bell
+
+BEL (`0x07`) received from the PTY triggers a brief visual indicator.
+
+**Behaviour:**
+- A yellow `●` dot (U+25CF, `theme.palette[3]`) is rendered next to the mode badge in the status bar for 150 ms with a quadratic ease-out fade (`intensity = 1 - t²`).
+- A 500 ms cooldown starts when the flash fires; any BEL received while the cooldown is active is silently dropped. This prevents tab-completion spam from re-triggering the indicator.
+- Optionally, `visual_bell = true` also blends the theme foreground color over the content area at up to ~22 % opacity for the same 150 ms duration.
+
+**Implementation fields (per `TabState`):**
+- `bell_flash_start: Option<Instant>` — set when bell fires; drives intensity calculation.
+- `bell_flash_until: Option<Instant>` — expiry used by `next_bell_wakeup` to schedule the next frame wakeup.
+- `bell_cooldown_until: Option<Instant>` — guards against repeated firings.
+
+**Config (`[general]`):**
+
+```toml
+[general]
+visual_bell = false   # set to true to also flash the screen background
+```
+
 ### Clipboard
 - `Ctrl+Shift+V` — paste from host clipboard (bracketed paste).
 - `Ctrl+Shift+C` — copy selection.

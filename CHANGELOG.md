@@ -12,6 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - page up / page down now scroll the viewport in visual mode, extending the selection
 
 ### Added
+- visual bell: BEL (0x07) triggers a `●` indicator next to the mode badge in the status bar (150 ms, yellow); a 500 ms cooldown suppresses repeated bells (e.g. tab-completion spam); optional screen flash can be enabled with `visual_bell = true` in `[general]` (default `false`)
 - test coverage for `app_state`, `command_palette`, and `renderer/overlays` modules: all dispatch_action arms, nudge_half, screenshot mode, rotate panes, search cycling, command palette entry construction, and overlay draw functions
 - test coverage for `views`, `drain`, and `session` modules: pane view collection, tab title building, PTY byte draining, bell flash, clipboard handling, and session I/O round-trips
 - reflow scrollback on resize: soft-wrapped lines re-wrap to the new column width when the terminal is resized; scroll position is preserved

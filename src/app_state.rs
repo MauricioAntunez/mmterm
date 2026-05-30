@@ -36,7 +36,9 @@ pub struct TabState {
     pub name: Option<String>,
     pub zoomed: bool,
     pub has_activity: bool,
+    pub bell_flash_start: Option<Instant>,
     pub bell_flash_until: Option<Instant>,
+    pub bell_cooldown_until: Option<Instant>,
     pub passthrough: bool,
 }
 
@@ -887,7 +889,9 @@ impl AppState {
             name: None,
             zoomed: false,
             has_activity: false,
+            bell_flash_start: None,
             bell_flash_until: None,
+            bell_cooldown_until: None,
             passthrough: false,
         });
         self.active_tab = self.tabs.len() - 1;
