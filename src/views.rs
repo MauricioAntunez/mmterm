@@ -4,6 +4,10 @@ use crate::renderer::PaneView;
 use crate::tabs;
 use crate::ui::layout::{STATUS_BAR_H, TAB_BAR_H};
 
+#[cfg(test)]
+#[path = "views_test.rs"]
+mod tests;
+
 fn search_args(
     is_active: bool,
     has_search: bool,
