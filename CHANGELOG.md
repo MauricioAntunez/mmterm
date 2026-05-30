@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-<<<<<<< HEAD
+- test coverage for `app_state`, `command_palette`, and `renderer/overlays` modules: all dispatch_action arms, nudge_half, screenshot mode, rotate panes, search cycling, command palette entry construction, and overlay draw functions
 - test coverage for `views`, `drain`, and `session` modules: pane view collection, tab title building, PTY byte draining, bell flash, clipboard handling, and session I/O round-trips
 - reflow scrollback on resize: soft-wrapped lines re-wrap to the new column width when the terminal is resized; scroll position is preserved
 - pane rotation: `Ctrl-W r` rotates panes forward (last → first slot) and `Ctrl-W R` rotates backward, like tmux
