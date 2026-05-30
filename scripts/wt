@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+WORKTREES_DIR="$REPO_ROOT/.worktrees"
+
+usage() {
+    echo "Usage: wt <branch-name>" >&2
+    exit 1
+}
+
+[[ $# -eq 1 ]] || usage
+BRANCH="$1"
+DEST="$WORKTREES_DIR/$BRANCH"
+
+# Update main
+echo "==> Updating main..."
+git -C "$REPO_ROOT" checkout main
+git -C "$REPO_ROOT" pull
+
+# Create worktree (new branch from main)
+echo "==> Creating worktree '$BRANCH' at $DEST..."
+git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$DEST" main
+
+# Symlink .claude if not already present
+if [[ ! -e "$DEST/.claude" ]]; then
+    ln -s "../../.claude" "$DEST/.claude"
+    echo "==> Linked .claude"
+fi
+
+echo "==> Entering $DEST"
+cd "$DEST"
+exec "${SHELL:-bash}"
