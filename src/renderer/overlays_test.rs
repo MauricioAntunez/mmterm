@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::*;
 use crate::tui_config::{ConfigPanel, Field, FieldKind};
 
@@ -14,6 +16,7 @@ fn make_panel(value: &str, kind: FieldKind) -> ConfigPanel {
         editing: false,
         edit_buf: String::new(),
         status: None,
+        collapsed: HashSet::new(),
     }
 }
 

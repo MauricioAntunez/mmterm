@@ -524,3 +524,168 @@ fn cycle_select_empty_options_returns_none() {
     assert!(matches!(panel.handle_left(), ConfigAction::None));
     assert!(matches!(panel.handle_right(), ConfigAction::None));
 }
+
+// ── Collapse / expand ─────────────────────────────────────────────────────────
+
+#[test]
+fn palette_collapsed_by_default() {
+    let panel = make_panel();
+    assert!(panel.collapsed.contains("Palette"));
+}
+
+#[test]
+fn visible_indices_hides_palette_body() {
+    let panel = make_panel();
+    // 37 total - 15 palette body fields = 22 visible
+    assert_eq!(panel.visible_indices().len(), 22);
+}
+
+#[test]
+fn toggle_on_palette_header_expands() {
+    let mut panel = make_panel();
+    panel.selected = F_PALETTE;
+    panel.toggle_collapse();
+    assert!(!panel.collapsed.contains("Palette"));
+    assert_eq!(panel.visible_indices().len(), 37);
+}
+
+#[test]
+fn toggle_twice_restores_collapsed() {
+    let mut panel = make_panel();
+    panel.selected = F_PALETTE;
+    panel.toggle_collapse();
+    panel.toggle_collapse();
+    assert!(panel.collapsed.contains("Palette"));
+    assert_eq!(panel.visible_indices().len(), 22);
+}
+
+#[test]
+fn space_key_on_section_header_toggles() {
+    let mut panel = make_panel();
+    panel.selected = F_PALETTE;
+    let before = panel.collapsed.contains("Palette");
+    panel.handle_char(' ');
+    assert_ne!(panel.collapsed.contains("Palette"), before);
+}
+
+#[test]
+fn space_key_on_non_section_row_is_noop() {
+    let mut panel = make_panel();
+    panel.selected = F_FONT_SIZE; // no section on this field
+    let count_before = panel.visible_indices().len();
+    panel.handle_char(' ');
+    assert_eq!(panel.visible_indices().len(), count_before);
+}
+
+#[test]
+fn space_while_editing_goes_to_buf() {
+    let mut panel = make_panel();
+    panel.handle_char('i'); // start editing
+    panel.edit_buf.clear();
+    panel.handle_char(' ');
+    assert_eq!(panel.edit_buf, " ");
+    assert!(panel.collapsed.contains("Palette")); // unchanged
+}
+
+// ── Navigation with collapsed sections ───────────────────────────────────────
+
+#[test]
+fn move_down_skips_collapsed_palette() {
+    let mut panel = make_panel();
+    // palette is collapsed by default; move to the palette header
+    panel.selected = F_PALETTE;
+    panel.handle_char('j');
+    // next visible after the palette header is F_STATUS_BAR_RIGHT
+    assert_eq!(panel.selected, F_STATUS_BAR_RIGHT);
+}
+
+#[test]
+fn move_up_skips_collapsed_palette() {
+    let mut panel = make_panel();
+    panel.selected = F_STATUS_BAR_RIGHT;
+    panel.handle_char('k');
+    // previous visible before Status Bar right is the palette header (F_PALETTE)
+    assert_eq!(panel.selected, F_PALETTE);
+}
+
+#[test]
+fn move_down_at_last_visible_clamps() {
+    let mut panel = make_panel();
+    // F_STATUS_BAR_RIGHT is the last field and is always visible
+    panel.selected = F_STATUS_BAR_RIGHT;
+    panel.handle_down();
+    assert_eq!(panel.selected, F_STATUS_BAR_RIGHT);
+}
+
+#[test]
+fn move_up_at_first_visible_clamps() {
+    let mut panel = make_panel();
+    panel.selected = 0;
+    panel.handle_up();
+    assert_eq!(panel.selected, 0);
+}
+
+// ── Section jump ─────────────────────────────────────────────────────────────
+
+#[test]
+fn jump_forward_from_font_lands_on_window() {
+    let mut panel = make_panel();
+    panel.selected = F_FONT_FAMILY;
+    panel.jump_section_forward();
+    assert_eq!(panel.selected, F_WIN_WIDTH);
+}
+
+#[test]
+fn jump_backward_from_window_lands_on_font() {
+    let mut panel = make_panel();
+    panel.selected = F_WIN_WIDTH;
+    panel.jump_section_backward();
+    assert_eq!(panel.selected, F_FONT_FAMILY);
+}
+
+#[test]
+fn jump_forward_wraps_at_last_section() {
+    let mut panel = make_panel();
+    panel.selected = F_STATUS_BAR_RIGHT; // Status Bar is the last section
+    panel.jump_section_forward();
+    assert_eq!(panel.selected, F_RESTORE_SESSION); // wraps to first (General)
+}
+
+#[test]
+fn jump_backward_wraps_at_first_section() {
+    let mut panel = make_panel();
+    panel.selected = F_RESTORE_SESSION; // General is now the first section
+    panel.jump_section_backward();
+    assert_eq!(panel.selected, F_STATUS_BAR_RIGHT); // wraps to last (Status Bar)
+}
+
+// ── section_of helper ─────────────────────────────────────────────────────────
+
+#[test]
+fn section_of_header_field_returns_own_section() {
+    let panel = make_panel();
+    assert_eq!(panel.section_of(F_FONT_FAMILY), Some("Font"));
+    assert_eq!(panel.section_of(F_PALETTE), Some("Palette"));
+}
+
+#[test]
+fn section_of_body_field_returns_enclosing_section() {
+    let panel = make_panel();
+    assert_eq!(panel.section_of(F_FONT_SIZE), Some("Font"));
+    assert_eq!(panel.section_of(F_PALETTE + 3), Some("Palette"));
+}
+
+// ── collapsed_count ──────────────────────────────────────────────────────────
+
+#[test]
+fn collapsed_count_palette_is_15() {
+    let panel = make_panel();
+    assert_eq!(panel.collapsed_count("Palette"), 15);
+}
+
+#[test]
+fn collapsed_count_font_is_1() {
+    let panel = make_panel();
+    // Font section has F_FONT_FAMILY (header) + F_FONT_SIZE (body)
+    assert_eq!(panel.collapsed_count("Font"), 1);
+}
