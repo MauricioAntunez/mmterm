@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::config::{
     ColorsConfig, Config, FontConfig, GeneralConfig, LogConfig, ShellConfig, StatusBarConfig,
     TerminalConfig, ThemeConfig, WindowConfig,
@@ -5,28 +7,28 @@ use crate::config::{
 use crate::theme::{list_themes, themes_dir};
 
 // Field indices — keep in sync with from_config()
-const F_FONT_FAMILY: usize = 0;
-const F_FONT_SIZE: usize = 1;
-const F_WIN_WIDTH: usize = 2;
-const F_WIN_HEIGHT: usize = 3;
-const F_WIN_TITLE: usize = 4;
-const F_BLINK_MS: usize = 5;
-const F_DIM: usize = 6;
-const F_DETECT_URLS: usize = 7;
-const F_SHELL: usize = 8;
-const F_SCROLLBACK: usize = 9;
-const F_LOG_AUTO: usize = 10;
-const F_LOG_DIR: usize = 11;
-const F_THEME_NAME: usize = 12;
-const F_COLOR_BG: usize = 13;
-const F_COLOR_FG: usize = 14;
-const F_COLOR_CUR: usize = 15;
-const F_COLOR_SEL: usize = 16;
-const F_PALETTE: usize = 17; // F_PALETTE + 0..15
-const F_STATUS_BAR_RIGHT: usize = 33;
-const F_RESTORE_SESSION: usize = 34;
-const F_SCREENSHOT_DIR: usize = 35;
-const F_VISUAL_BELL: usize = 36;
+const F_RESTORE_SESSION: usize = 0;
+const F_SCREENSHOT_DIR: usize = 1;
+const F_VISUAL_BELL: usize = 2;
+const F_FONT_FAMILY: usize = 3;
+const F_FONT_SIZE: usize = 4;
+const F_WIN_WIDTH: usize = 5;
+const F_WIN_HEIGHT: usize = 6;
+const F_WIN_TITLE: usize = 7;
+const F_BLINK_MS: usize = 8;
+const F_DIM: usize = 9;
+const F_DETECT_URLS: usize = 10;
+const F_SHELL: usize = 11;
+const F_SCROLLBACK: usize = 12;
+const F_LOG_AUTO: usize = 13;
+const F_LOG_DIR: usize = 14;
+const F_THEME_NAME: usize = 15;
+const F_COLOR_BG: usize = 16;
+const F_COLOR_FG: usize = 17;
+const F_COLOR_CUR: usize = 18;
+const F_COLOR_SEL: usize = 19;
+const F_PALETTE: usize = 20; // F_PALETTE + 0..15
+const F_STATUS_BAR_RIGHT: usize = 36;
 
 const PALETTE_LABELS: [&str; 16] = [
     "Palette 0  black",
@@ -81,12 +83,36 @@ pub struct ConfigPanel {
     pub editing: bool,
     pub edit_buf: String,
     pub status: Option<String>,
+    /// Section names that are currently collapsed (body fields hidden).
+    pub collapsed: HashSet<&'static str>,
 }
 
 impl ConfigPanel {
     pub fn from_config(cfg: &Config) -> Self {
         let hex = |s: &str| s.to_string();
         let mut fields = vec![
+            // ── General ─────────────────────────────────────────────────────
+            Field {
+                label: "Restore Session",
+                hint: "restore tabs, splits, and CWDs on next launch",
+                value: cfg.general.restore_session.to_string(),
+                kind: FieldKind::Bool,
+                section: Some("General"),
+            },
+            Field {
+                label: "Screenshot Dir",
+                hint: "directory for screenshots; ~ expands to home (e.g. ~/mmterm/shot)",
+                value: cfg.general.screenshot_dir.clone(),
+                kind: FieldKind::OptText,
+                section: None,
+            },
+            Field {
+                label: "Visual Bell",
+                hint: "flash the screen on BEL in addition to the status bar dot",
+                value: cfg.general.visual_bell.to_string(),
+                kind: FieldKind::Bool,
+                section: None,
+            },
             // ── Font ────────────────────────────────────────────────────────
             Field {
                 label: "Font Family",
@@ -240,28 +266,8 @@ impl ConfigPanel {
             section: Some("Status Bar"),
         });
 
-        // ── General ─────────────────────────────────────────────────────────
-        fields.push(Field {
-            label: "Restore Session",
-            hint: "restore tabs, splits, and CWDs on next launch",
-            value: cfg.general.restore_session.to_string(),
-            kind: FieldKind::Bool,
-            section: Some("General"),
-        });
-        fields.push(Field {
-            label: "Screenshot Dir",
-            hint: "directory for screenshots; ~ expands to home (e.g. ~/mmterm/shot)",
-            value: cfg.general.screenshot_dir.clone(),
-            kind: FieldKind::OptText,
-            section: None,
-        });
-        fields.push(Field {
-            label: "Visual Bell",
-            hint: "flash the screen on BEL in addition to the status bar dot",
-            value: cfg.general.visual_bell.to_string(),
-            kind: FieldKind::Bool,
-            section: None,
-        });
+        let mut collapsed = HashSet::new();
+        collapsed.insert("Palette");
 
         Self {
             fields,
@@ -269,6 +275,7 @@ impl ConfigPanel {
             editing: false,
             edit_buf: String::new(),
             status: None,
+            collapsed,
         }
     }
 
@@ -304,6 +311,18 @@ impl ConfigPanel {
                 }
                 'i' | '\r' | '\n' => {
                     self.start_edit();
+                    ConfigAction::None
+                }
+                ' ' => {
+                    self.toggle_collapse();
+                    ConfigAction::None
+                }
+                ']' => {
+                    self.jump_section_forward();
+                    ConfigAction::None
+                }
+                '[' => {
+                    self.jump_section_backward();
                     ConfigAction::None
                 }
                 'q' | '\x1b' => ConfigAction::Cancel,
@@ -360,15 +379,127 @@ impl ConfigPanel {
     }
 
     fn move_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
+        let vis = self.visible_indices();
+        if let Some(pos) = vis
+            .iter()
+            .position(|&i| i == self.selected)
+            .filter(|&p| p > 0)
+        {
+            self.selected = vis[pos - 1];
         }
     }
 
     fn move_down(&mut self) {
-        if self.selected < self.fields.len() - 1 {
-            self.selected += 1;
+        let vis = self.visible_indices();
+        if let Some(pos) = vis
+            .iter()
+            .position(|&i| i == self.selected)
+            .filter(|&p| p + 1 < vis.len())
+        {
+            self.selected = vis[pos + 1];
         }
+    }
+
+    /// Field indices that are currently visible (section headers always shown;
+    /// body fields hidden when their section is collapsed).
+    pub fn visible_indices(&self) -> Vec<usize> {
+        let mut vis = Vec::new();
+        let mut current_section: Option<&'static str> = None;
+        for (i, field) in self.fields.iter().enumerate() {
+            if let Some(sec) = field.section {
+                current_section = Some(sec);
+                vis.push(i);
+            } else {
+                let hidden = current_section
+                    .map(|s| self.collapsed.contains(s))
+                    .unwrap_or(false);
+                if !hidden {
+                    vis.push(i);
+                }
+            }
+        }
+        vis
+    }
+
+    /// Section name that field `idx` belongs to (walks backwards to the nearest header).
+    pub fn section_of(&self, idx: usize) -> Option<&'static str> {
+        for i in (0..=idx).rev() {
+            if let Some(sec) = self.fields[i].section {
+                return Some(sec);
+            }
+        }
+        None
+    }
+
+    /// Toggle the collapsed state of the section whose header is at `selected`.
+    /// No-op if the selected field is not a section header.
+    pub fn toggle_collapse(&mut self) {
+        let Some(sec) = self.fields[self.selected].section else {
+            return;
+        };
+        if self.collapsed.contains(sec) {
+            self.collapsed.remove(sec);
+        } else {
+            self.collapsed.insert(sec);
+        }
+        // Clamp selected to remain within the (updated) visible set.
+        let vis = self.visible_indices();
+        if !vis.contains(&self.selected) {
+            self.selected = *vis.last().unwrap_or(&0);
+        }
+    }
+
+    /// Jump to the next section header in visible order, wrapping around.
+    pub fn jump_section_forward(&mut self) {
+        let vis = self.visible_indices();
+        let headers: Vec<usize> = vis
+            .iter()
+            .copied()
+            .filter(|&i| self.fields[i].section.is_some())
+            .collect();
+        if headers.len() <= 1 {
+            return;
+        }
+        let cur_sec = self.section_of(self.selected);
+        let cur_pos = headers
+            .iter()
+            .position(|&i| self.fields[i].section == cur_sec)
+            .unwrap_or(0);
+        self.selected = headers[(cur_pos + 1) % headers.len()];
+    }
+
+    /// Jump to the previous section header in visible order, wrapping around.
+    pub fn jump_section_backward(&mut self) {
+        let vis = self.visible_indices();
+        let headers: Vec<usize> = vis
+            .iter()
+            .copied()
+            .filter(|&i| self.fields[i].section.is_some())
+            .collect();
+        if headers.len() <= 1 {
+            return;
+        }
+        let cur_sec = self.section_of(self.selected);
+        let cur_pos = headers
+            .iter()
+            .position(|&i| self.fields[i].section == cur_sec)
+            .unwrap_or(0);
+        let prev = cur_pos.checked_sub(1).unwrap_or(headers.len() - 1);
+        self.selected = headers[prev];
+    }
+
+    /// Number of body fields hidden when `sec` is collapsed (excludes the header itself).
+    pub fn collapsed_count(&self, sec: &str) -> usize {
+        let mut in_sec = false;
+        let mut count = 0;
+        for field in &self.fields {
+            if let Some(s) = field.section {
+                in_sec = s == sec;
+            } else if in_sec {
+                count += 1;
+            }
+        }
+        count
     }
 
     fn start_edit(&mut self) {

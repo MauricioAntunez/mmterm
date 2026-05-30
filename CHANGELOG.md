@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - copy screenshot file path to clipboard after a successful capture
+- config panel: palette section collapsed by default; `Space` on a section header toggles collapse; `]`/`[` and `Tab`/`Shift+Tab` jump between sections
 - page up / page down now scroll the viewport in visual mode, extending the selection
 
 ### Added

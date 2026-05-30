@@ -5,6 +5,34 @@ use super::text::{
     Renderer, STATUS_BAR_H, blend, color_u32, dim_buffer, draw_rect_border, fill_rect,
 };
 
+// ── Overlay palette ──────────────────────────────────────────────────────────
+// All color constants used by config panel and command palette overlays.
+
+/// Panel background (dark blue).
+const C_PANEL_BG: u32 = 0xff_1a_1b_26;
+/// Panel border / selected-row left accent (bright blue).
+const C_BORDER: u32 = 0xff_89_b4_fa;
+/// Section separator / thin rule between sections.
+const C_SECTION_RULE: u32 = 0xff_24_25_3a;
+/// Footer separator line.
+const C_FOOTER_SEP: u32 = 0xff_31_32_44;
+/// Dimmed text: section headers, scroll indicator, hints, help.
+const C_DIM: u32 = 0xff_58_5b_70;
+/// Panel title (magenta).
+const C_TITLE: u32 = 0xff_cb_a6_f7;
+/// Selected row background.
+const C_ROW_SEL_BG: u32 = 0xff_2a_2b_3d;
+/// Label color when row is selected (yellow).
+const C_LABEL_SEL: u32 = 0xff_f9_e2_af;
+/// Label color when row is unselected (light blue-grey).
+const C_LABEL_UNSEL: u32 = 0xff_ba_c2_de;
+/// Error / invalid status text (pink).
+const C_ERROR: u32 = 0xff_f3_8b_a8;
+/// "[editing]" badge (green).
+const C_EDITING: u32 = 0xff_a6_e3_a1;
+/// Command palette query input text.
+const C_QUERY_TEXT: u32 = 0xff_cb_d5_f5;
+
 // ── Screenshot helpers ───────────────────────────────────────────────────────
 
 fn dim_row_range(buf: &mut [u32], bw: u32, row: u32, col_start: u32, col_end: u32) {
@@ -155,11 +183,8 @@ impl Renderer {
         let px = (bw - panel_w) / 2;
         let py = (bh.saturating_sub(panel_h)) / 2;
 
-        let bg = 0xff_1a_1b_26_u32;
-        let border = 0xff_89_b4_fa_u32;
-
-        fill_rect(buf, bw, px, py, panel_w, panel_h, bg);
-        draw_rect_border(buf, bw, px, py, panel_w, panel_h, border);
+        fill_rect(buf, bw, px, py, panel_w, panel_h, C_PANEL_BG);
+        draw_rect_border(buf, bw, px, py, panel_w, panel_h, C_BORDER);
 
         // Title bar
         self.draw_str(
@@ -171,27 +196,20 @@ impl Renderer {
             "CONFIGURATION",
             fp,
             true,
-            0xff_cb_a6_f7,
-        );
-        // scroll indicator
-        let total = panel.fields.len();
-        let scroll_info = format!("{}/{}", panel.selected + 1, total);
-        let si_x = px + panel_w - cw * scroll_info.len() as u32 - pad;
-        self.draw_str(
-            buf,
-            bw,
-            bh,
-            si_x,
-            py + 4,
-            &scroll_info,
-            fp,
-            false,
-            0xff_58_5b_70,
+            C_TITLE,
         );
 
-        // Scroll window: keep selected in view
+        // Scroll window: keep selected in view (using visible indices)
+        let vis = panel.visible_indices();
         let sel = panel.selected;
-        let scroll_start = sel.saturating_sub(max_visible as usize - 1);
+        let sel_pos = vis.iter().position(|&i| i == sel).unwrap_or(0);
+        let scroll_start = sel_pos.saturating_sub(max_visible as usize - 1);
+
+        // Scroll indicator shows position within visible set
+        let scroll_info = format!("{}/{}", sel_pos + 1, vis.len());
+        let si_x = px + panel_w - cw * scroll_info.len() as u32 - pad;
+        self.draw_str(buf, bw, bh, si_x, py + 4, &scroll_info, fp, false, C_DIM);
+
         let layout = FieldRowLayout {
             px,
             panel_w,
@@ -199,8 +217,8 @@ impl Renderer {
             cw,
             fp,
             row_h,
-            bg,
-            border,
+            bg: C_PANEL_BG,
+            border: C_BORDER,
             sel,
         };
         let clip_y = py + panel_h - row_h * footer_rows;
@@ -208,15 +226,23 @@ impl Renderer {
         let content_y = py + row_h * 2;
         let mut draw_y = content_y;
 
-        for (i, field) in panel.fields.iter().enumerate().skip(scroll_start) {
+        for &i in vis.iter().skip(scroll_start) {
             if draw_y + row_h > clip_y {
                 break;
             }
 
+            let field = &panel.fields[i];
+
             // Section header
             if let Some(sec) = field.section {
-                fill_rect(buf, bw, px + 1, draw_y, panel_w - 2, 1, 0xff_24_25_3a);
-                let sec_label = format!("── {} ", sec);
+                fill_rect(buf, bw, px + 1, draw_y, panel_w - 2, 1, C_SECTION_RULE);
+                let is_collapsed = panel.collapsed.contains(sec);
+                let count = panel.collapsed_count(sec);
+                let sec_label = if is_collapsed {
+                    format!("── {} ({}) ", sec, count)
+                } else {
+                    format!("── {} ", sec)
+                };
                 self.draw_str(
                     buf,
                     bw,
@@ -226,7 +252,22 @@ impl Renderer {
                     &sec_label,
                     fp,
                     true,
-                    0xff_58_5b_70,
+                    C_DIM,
+                );
+                // Collapse indicator [+] / [-]
+                let indicator = if is_collapsed { "[+]" } else { "[-]" };
+                let ind_color = if i == sel { C_LABEL_SEL } else { C_DIM };
+                let ind_x = px + panel_w - cw * indicator.len() as u32 - pad;
+                self.draw_str(
+                    buf,
+                    bw,
+                    bh,
+                    ind_x,
+                    draw_y + 1,
+                    indicator,
+                    fp,
+                    false,
+                    ind_color,
                 );
                 draw_y += section_h;
                 if draw_y + row_h > clip_y {
@@ -240,30 +281,31 @@ impl Renderer {
 
         // Footer: hint + status/help
         let footer_y = py + panel_h - row_h * footer_rows;
-        fill_rect(buf, bw, px + 1, footer_y, panel_w - 2, 1, 0xff_31_32_44);
+        fill_rect(buf, bw, px + 1, footer_y, panel_w - 2, 1, C_FOOTER_SEP);
 
-        let hint = format!("hint: {}", panel.fields[panel.selected].hint);
-        self.draw_str(
-            buf,
-            bw,
-            bh,
-            px + pad,
-            footer_y + 2,
-            &hint,
-            fp,
-            false,
-            0xff_58_5b_70,
-        );
+        let hint = if panel.fields[panel.selected].section.is_some() {
+            let is_collapsed = panel.fields[panel.selected]
+                .section
+                .map(|s| panel.collapsed.contains(s))
+                .unwrap_or(false);
+            if is_collapsed {
+                "Space: expand section  ]: next section  [: prev section".to_string()
+            } else {
+                "Space: collapse section  ]: next section  [: prev section".to_string()
+            }
+        } else {
+            format!("hint: {}", panel.fields[panel.selected].hint)
+        };
+        self.draw_str(buf, bw, bh, px + pad, footer_y + 2, &hint, fp, false, C_DIM);
 
         let status_y = py + panel_h - row_h;
-        let status = panel
-            .status
-            .as_deref()
-            .unwrap_or("j/k: move  Enter/i: edit  Ctrl+S: save  q/Esc: cancel");
+        let status = panel.status.as_deref().unwrap_or(
+            "j/k: move  Space: collapse  ]/[: section  Enter/i: edit  Ctrl+S: save  q: cancel",
+        );
         let status_color = if panel.status.is_some() {
-            0xff_f3_8b_a8
+            C_ERROR
         } else {
-            0xff_58_5b_70
+            C_DIM
         };
         self.draw_str(
             buf,
@@ -293,7 +335,7 @@ impl Renderer {
         let is_sel = i == l.sel;
         let is_editing = panel.editing && is_sel;
 
-        let row_bg = if is_sel { 0xff_2a_2b_3d } else { l.bg };
+        let row_bg = if is_sel { C_ROW_SEL_BG } else { l.bg };
         fill_rect(buf, bw, l.px + 1, draw_y, l.panel_w - 2, l.row_h, row_bg);
         if is_sel {
             fill_rect(buf, bw, l.px + 1, draw_y, 1, l.row_h, l.border);
@@ -301,7 +343,7 @@ impl Renderer {
 
         draw_hex_color_swatch(buf, bw, panel, i, draw_y, l);
 
-        let label_color = if is_sel { 0xff_f9_e2_af } else { 0xff_ba_c2_de };
+        let label_color = if is_sel { C_LABEL_SEL } else { C_LABEL_UNSEL };
         let is_select = matches!(field.kind, crate::tui_config::FieldKind::Select(_));
         let value_display = field_value_display(panel, i, is_select, is_sel, is_editing);
         let text = format!("{:<18} {}", field.label, value_display);
@@ -328,8 +370,20 @@ impl Renderer {
                 "[editing]",
                 l.fp,
                 false,
-                0xff_a6_e3_a1,
+                C_EDITING,
             );
+        }
+
+        // For section-header fields show [+]/[-] badge on the row itself so the
+        // collapse affordance is visible on the highlighted row, not just above it.
+        if let Some(sec) = field.section.filter(|_| is_sel) {
+            let ind = if panel.collapsed.contains(sec) {
+                "[+]"
+            } else {
+                "[-]"
+            };
+            let bx = l.px + l.panel_w - l.cw * ind.len() as u32 - l.pad;
+            self.draw_str(buf, bw, bh, bx, draw_y + 2, ind, l.fp, false, C_LABEL_SEL);
         }
     }
 
@@ -356,12 +410,10 @@ impl Renderer {
         let px = (bw - panel_w) / 2;
         let py = bh / 4;
 
-        let bg = 0xff_1a_1b_26_u32;
-        let border = 0xff_89_b4_fa_u32;
         let pad = cw;
 
-        fill_rect(buf, bw, px, py, panel_w, panel_h, bg);
-        draw_rect_border(buf, bw, px, py, panel_w, panel_h, border);
+        fill_rect(buf, bw, px, py, panel_w, panel_h, C_PANEL_BG);
+        draw_rect_border(buf, bw, px, py, panel_w, panel_h, C_BORDER);
 
         // Query input row
         let query_display = format!("> {query}_");
@@ -374,27 +426,17 @@ impl Renderer {
             &query_display,
             fp,
             false,
-            0xff_cb_d5_f5,
+            C_QUERY_TEXT,
         );
 
         // Entry count indicator
         let count_str = format!("{}/{}", entries.len(), crate::command_palette::total());
         let count_x = px + panel_w - cw * count_str.len() as u32 - pad;
-        self.draw_str(
-            buf,
-            bw,
-            bh,
-            count_x,
-            py + 4,
-            &count_str,
-            fp,
-            false,
-            0xff_58_5b_70,
-        );
+        self.draw_str(buf, bw, bh, count_x, py + 4, &count_str, fp, false, C_DIM);
 
         // Separator line under query row
         let sep_y = py + row_h;
-        fill_rect(buf, bw, px + 1, sep_y, panel_w - 2, 1, 0xff_24_25_3a);
+        fill_rect(buf, bw, px + 1, sep_y, panel_w - 2, 1, C_SECTION_RULE);
 
         // Scroll window: keep selected visible
         let scroll_start = selected.saturating_sub(MAX_VISIBLE - 1);
@@ -409,14 +451,14 @@ impl Renderer {
             let row_y = content_y + (list_i - scroll_start) as u32 * row_h;
             let is_sel = list_i == selected;
 
-            let row_bg = if is_sel { 0xff_2a_2b_3d } else { bg };
+            let row_bg = if is_sel { C_ROW_SEL_BG } else { C_PANEL_BG };
             fill_rect(buf, bw, px + 1, row_y, panel_w - 2, row_h, row_bg);
             if is_sel {
-                fill_rect(buf, bw, px + 1, row_y, 1, row_h, border);
+                fill_rect(buf, bw, px + 1, row_y, 1, row_h, C_BORDER);
             }
 
             // Label (left, bold when selected)
-            let label_color = if is_sel { 0xff_f9_e2_af } else { 0xff_ba_c2_de };
+            let label_color = if is_sel { C_LABEL_SEL } else { C_LABEL_UNSEL };
             self.draw_str(
                 buf,
                 bw,
@@ -441,7 +483,7 @@ impl Renderer {
                 shortcut,
                 fp,
                 false,
-                0xff_58_5b_70,
+                C_DIM,
             );
         }
 
@@ -456,7 +498,7 @@ impl Renderer {
             "↑↓ navigate   Enter execute   Esc close",
             fp,
             false,
-            0xff_58_5b_70,
+            C_DIM,
         );
     }
 

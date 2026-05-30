@@ -263,6 +263,7 @@ impl App {
             None => return,
         };
 
+        let shift = self.modifiers.state().shift_key();
         let action = match &event.logical_key {
             Key::Named(NamedKey::Escape) => panel.handle_escape(),
             Key::Named(NamedKey::Enter) => panel.handle_char('\r'),
@@ -272,6 +273,14 @@ impl App {
             Key::Named(NamedKey::ArrowLeft) => panel.handle_left(),
             Key::Named(NamedKey::ArrowRight) => panel.handle_right(),
             Key::Named(NamedKey::Space) => panel.handle_char(' '),
+            Key::Named(NamedKey::Tab) => {
+                if shift {
+                    panel.jump_section_backward()
+                } else {
+                    panel.jump_section_forward()
+                };
+                ConfigAction::None
+            }
             Key::Character(s) => {
                 if ctrl && s.eq_ignore_ascii_case("s") {
                     panel.save()
