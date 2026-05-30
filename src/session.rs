@@ -46,7 +46,14 @@ pub fn session_path() -> PathBuf {
 }
 
 pub fn save(session: &SavedSession) -> anyhow::Result<()> {
-    let path = session_path();
+    save_to(&session_path(), session)
+}
+
+pub fn load() -> Option<SavedSession> {
+    load_from(&session_path())
+}
+
+pub(crate) fn save_to(path: &std::path::Path, session: &SavedSession) -> anyhow::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -54,14 +61,13 @@ pub fn save(session: &SavedSession) -> anyhow::Result<()> {
         toml::to_string_pretty(session).map_err(|e| anyhow::anyhow!("serialize session: {e}"))?;
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, &content)?;
-    std::fs::rename(&tmp, &path)?;
+    std::fs::rename(&tmp, path)?;
     log::info!("Session saved to {}", path.display());
     Ok(())
 }
 
-pub fn load() -> Option<SavedSession> {
-    let path = session_path();
-    let raw = match std::fs::read_to_string(&path) {
+pub(crate) fn load_from(path: &std::path::Path) -> Option<SavedSession> {
+    let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(_) => return None,
     };

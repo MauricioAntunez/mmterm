@@ -8,6 +8,10 @@ use crate::app_state::{PaneEntry, TabState};
 
 use super::App;
 
+#[cfg(test)]
+#[path = "drain_test.rs"]
+mod tests;
+
 impl App {
     pub(super) fn drain_all(&mut self) -> (Vec<(usize, usize)>, bool) {
         let active_tab = self.state.active_tab;

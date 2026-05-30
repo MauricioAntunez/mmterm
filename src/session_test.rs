@@ -134,3 +134,146 @@ fn load_returns_none_on_corrupt_toml() {
     // Missing required fields → deserialization error
     assert!(result.is_err());
 }
+
+// ── I/O tests using save_to / load_from ──────────────────────────────────────
+
+fn simple_session() -> SavedSession {
+    SavedSession {
+        active_tab: 0,
+        tabs: vec![SavedTab {
+            name: None,
+            active_pane: 0,
+            pane_cwds: vec![PathBuf::from("/tmp")],
+            layout: leaf(0),
+        }],
+    }
+}
+
+#[test]
+fn save_to_and_load_from_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.toml");
+    let session = simple_session();
+    super::save_to(&path, &session).expect("save_to failed");
+    let loaded = super::load_from(&path).expect("load_from returned None");
+    assert_eq!(loaded.active_tab, session.active_tab);
+    assert_eq!(loaded.tabs.len(), session.tabs.len());
+    assert_eq!(loaded.tabs[0].pane_cwds[0], PathBuf::from("/tmp"));
+}
+
+#[test]
+fn save_to_creates_parent_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nested").join("dirs").join("session.toml");
+    super::save_to(&path, &simple_session()).expect("save_to failed");
+    assert!(path.exists());
+}
+
+#[test]
+fn save_to_uses_atomic_rename_no_tmp_leftover() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.toml");
+    super::save_to(&path, &simple_session()).expect("save_to failed");
+    let tmp = path.with_extension("toml.tmp");
+    assert!(!tmp.exists(), ".tmp file should not remain after save");
+}
+
+#[test]
+fn load_from_missing_file_returns_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nonexistent.toml");
+    assert!(super::load_from(&path).is_none());
+}
+
+#[test]
+fn load_from_corrupt_toml_returns_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.toml");
+    std::fs::write(&path, b"not valid toml ;;;").unwrap();
+    assert!(super::load_from(&path).is_none());
+}
+
+#[test]
+fn load_from_empty_file_returns_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.toml");
+    std::fs::write(&path, b"").unwrap();
+    assert!(super::load_from(&path).is_none());
+}
+
+#[test]
+fn save_to_overwrites_existing_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.toml");
+
+    let first = SavedSession {
+        active_tab: 0,
+        tabs: vec![SavedTab {
+            name: Some("first".into()),
+            active_pane: 0,
+            pane_cwds: vec![PathBuf::from("/a")],
+            layout: leaf(0),
+        }],
+    };
+    super::save_to(&path, &first).unwrap();
+
+    let second = SavedSession {
+        active_tab: 1,
+        tabs: vec![
+            SavedTab {
+                name: None,
+                active_pane: 0,
+                pane_cwds: vec![PathBuf::from("/b")],
+                layout: leaf(0),
+            },
+            SavedTab {
+                name: None,
+                active_pane: 0,
+                pane_cwds: vec![PathBuf::from("/c")],
+                layout: leaf(0),
+            },
+        ],
+    };
+    super::save_to(&path, &second).unwrap();
+
+    let loaded = super::load_from(&path).unwrap();
+    assert_eq!(loaded.active_tab, 1);
+    assert_eq!(loaded.tabs.len(), 2);
+}
+
+#[test]
+fn roundtrip_with_empty_cwd() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.toml");
+    let session = SavedSession {
+        active_tab: 0,
+        tabs: vec![SavedTab {
+            name: None,
+            active_pane: 0,
+            pane_cwds: vec![PathBuf::from("")],
+            layout: leaf(0),
+        }],
+    };
+    super::save_to(&path, &session).unwrap();
+    let loaded = super::load_from(&path).unwrap();
+    assert_eq!(loaded.tabs[0].pane_cwds[0], PathBuf::from(""));
+}
+
+#[test]
+fn roundtrip_active_tab_out_of_bounds_preserved() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.toml");
+    let session = SavedSession {
+        active_tab: 99,
+        tabs: vec![SavedTab {
+            name: None,
+            active_pane: 0,
+            pane_cwds: vec![PathBuf::from("/tmp")],
+            layout: leaf(0),
+        }],
+    };
+    super::save_to(&path, &session).unwrap();
+    let loaded = super::load_from(&path).unwrap();
+    // save_to does not clamp — the index is stored as-is
+    assert_eq!(loaded.active_tab, 99);
+}
