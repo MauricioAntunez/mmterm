@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-30
+
 ### Fixed
 - visual mode selection spanning multiple pages now copies all selected lines; previously `start_row` was clamped to the viewport height, so only the last page of a multi-page selection was copied
 
@@ -274,7 +276,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - App icon with MM branding
 - event loop yields on idle to eliminate CPU busy-loop during quiescent periods
 
-[Unreleased]: https://github.com/roramirez/mmterm/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/roramirez/mmterm/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/roramirez/mmterm/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/roramirez/mmterm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/roramirez/mmterm/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/roramirez/mmterm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/roramirez/mmterm/compare/v0.1.0...v0.2.0
