@@ -206,23 +206,14 @@ impl Node {
         let Node::Split { dir, ratio, a, b } = self else {
             return false;
         };
-        let dir_matches = matches!(dir, SplitDir::H) == split_h;
-        if a.contains_leaf(target) {
-            if a.nudge(target, split_h, delta) {
-                return true;
-            }
-            if dir_matches {
-                *ratio = (*ratio + delta).clamp(RATIO_MIN, RATIO_MAX);
-                return true;
-            }
-        } else if b.contains_leaf(target) {
-            if b.nudge(target, split_h, delta) {
-                return true;
-            }
-            if dir_matches {
-                *ratio = (*ratio + delta).clamp(RATIO_MIN, RATIO_MAX);
-                return true;
-            }
+        if a.nudge(target, split_h, delta) || b.nudge(target, split_h, delta) {
+            return true;
+        }
+        if (a.contains_leaf(target) || b.contains_leaf(target))
+            && matches!(dir, SplitDir::H) == split_h
+        {
+            *ratio = (*ratio + delta).clamp(RATIO_MIN, RATIO_MAX);
+            return true;
         }
         false
     }
@@ -389,8 +380,7 @@ impl Layout {
         } else {
             ids.rotate_left(1);
         }
-        let mut cursor = 0;
-        self.root.apply_leaf_ids(&ids, &mut cursor);
+        self.root.apply_leaf_ids(&ids, &mut 0);
     }
 
     /// Find the pane spatially closest to `from` in direction `dx, dy`.

@@ -466,16 +466,16 @@ impl Renderer {
         // Bottom separator
         fill_rect(buf, width, 0, TAB_BAR_H - 1, width, 1, sep_col);
 
+        let inactive_bg = dim_color(color_u32(theme.background), 0.85);
+        let inactive_text = color_u32(theme.palette[8]);
+        let active_bg = color_u32(theme.badge);
         let mut cursor_x = 4u32;
         for (label, is_active, has_activity) in tabs {
             let tab_w = label.len() as u32 * cw + 12;
             let (badge_bg, text_color) = if *is_active {
-                (color_u32(theme.badge), BADGE_FG)
+                (active_bg, BADGE_FG)
             } else {
-                (
-                    dim_color(color_u32(theme.background), 0.85),
-                    color_u32(theme.palette[8]),
-                )
+                (inactive_bg, inactive_text)
             };
 
             // Badge fill
