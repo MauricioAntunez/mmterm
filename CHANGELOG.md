@@ -9,6 +9,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - visual mode selection spanning multiple pages now copies all selected lines; previously `start_row` was clamped to the viewport height, so only the last page of a multi-page selection was copied
 
 ### Changed
+- refactor grid.rs: replace scroll_down() inner clear-loop with slice fill; simplify row_col_range() col-end calculation
+- refactor app_event.rs: extract separator_at_pixel() and active_grid_params() helpers; reduce handle_keyboard_input nesting and eliminate duplicate separator lookup in try_start_separator_drag
+- refactor renderer/overlays.rs: extract draw_palette_entry() helper; collapse 43-line draw_command_palette loop body to 5 lines
 - refactor grid.rs: add HTTPS_PREFIX_LEN/HTTP_PREFIX_LEN constants; replace remaining `rows-1`/`cols-1` literals with max_row()/max_col(); refactor clear_line() to use slice fill
 - refactor app_state.rs: extract swap_visual_anchor() and set_visual_anchor() helpers; flatten dispatch_visual_action() nesting from 5 to 2 levels
 - refactor renderer/text.rs: extract draw_status_badge() to eliminate duplicated fill_rect+draw_badge_label pattern in draw_status_bar()
