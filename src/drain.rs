@@ -45,12 +45,17 @@ const PARSE_BATCH_MAX: usize = 32 * 1024;
 /// The thread reads PTY bytes from `rx`, parses them into `grid` (write lock),
 /// and sends side-effects to `effects_tx`. Responds to `discard_signal` by
 /// draining the channel without parsing (instant Ctrl+C response).
+///
+/// `wakeup_pending` is the same atomic used by the wakeup closure. The parser
+/// thread reads it to decide how long to yield after each batch — ensuring the
+/// render thread can acquire the grid read-lock regularly even during heavy output.
 pub fn spawn_parser_thread(
     rx: Receiver<Vec<u8>>,
     grid: Arc<RwLock<Grid>>,
     log_file: Arc<Mutex<Option<std::fs::File>>>,
     effects_tx: Sender<ParseEffect>,
     discard_signal: Arc<AtomicBool>,
+    wakeup_pending: Arc<AtomicBool>,
     wakeup: Box<dyn Fn() + Send + 'static>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
@@ -74,9 +79,14 @@ pub fn spawn_parser_thread(
                 }
             }
 
-            // Ctrl+C / Ctrl+\: discard entire queue without parsing.
+            // Ctrl+C / Ctrl+\: discard the backlog only when the render thread
+            // is already behind (wakeup_pending=true → large queue exists).
+            // If the render thread is keeping up, the ^C echo and shell prompt
+            // are tiny and should be processed normally so the user sees "^C".
             if discard_signal.swap(false, Ordering::AcqRel) {
-                while rx.try_recv().is_ok() {}
+                if wakeup_pending.load(Ordering::Acquire) {
+                    while rx.try_recv().is_ok() {}
+                }
                 wakeup();
                 continue;
             }
@@ -124,6 +134,24 @@ pub fn spawn_parser_thread(
             }
 
             wakeup();
+
+            // Cooperative yield: prevent back-to-back write locks from starving
+            // the render thread's read-lock requests.
+            //
+            // Without this, `find /` saturates the parser at ~100% CPU, holding
+            // the write lock for ~36 ms per batch with no gap. The render thread
+            // (needing a read lock) can never make progress → terminal appears
+            // frozen and window resize hangs.
+            //
+            // Strategy: always yield once (sched_yield, ~0–1 ms on Linux), then
+            // if the render thread still hasn't consumed the wakeup event
+            // (wakeup_pending=true), sleep 4 ms to give it a full scheduling
+            // window. This caps effective batch rate at ~1000/(36+4) ≈ 25 fps
+            // under maximum load while keeping throughput near 885 KiB/s.
+            std::thread::yield_now();
+            if wakeup_pending.load(Ordering::Acquire) {
+                std::thread::sleep(std::time::Duration::from_millis(4));
+            }
         }
     })
 }

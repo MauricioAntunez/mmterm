@@ -54,6 +54,7 @@ impl App {
         // Wakeup fires from parser thread (after each parsed batch).
         let proxy = self.proxy.clone();
         let wakeup_pending = Arc::clone(&self.wakeup_pending);
+        let wakeup_pending_for_parser = Arc::clone(&self.wakeup_pending);
         let wakeup = Box::new(move || {
             if !wakeup_pending.swap(true, Ordering::AcqRel) {
                 let _ = proxy.send_event(());
@@ -83,6 +84,7 @@ impl App {
                     log_file.clone(),
                     effects_tx,
                     discard_signal.clone(),
+                    wakeup_pending_for_parser,
                     wakeup,
                 );
                 self.state.tabs[tab_idx].panes.insert(

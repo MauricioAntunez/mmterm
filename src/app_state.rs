@@ -953,6 +953,7 @@ impl AppState {
             log_file.clone(),
             effects_tx,
             discard_signal.clone(),
+            Arc::new(AtomicBool::new(false)), // test: no wakeup_pending needed
             Box::new(|| {}),
         );
         let tab_idx = self.active_tab;

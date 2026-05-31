@@ -82,6 +82,7 @@ fn make_pane_entry() -> (PaneEntry, crossbeam_channel::Sender<Vec<u8>>) {
         log_file.clone(),
         effects_tx,
         discard_signal.clone(),
+        Arc::new(AtomicBool::new(false)), // tests don't need wakeup_pending
         Box::new(|| {}),
     );
 
