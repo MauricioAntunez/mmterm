@@ -194,12 +194,23 @@ impl App {
     }
 
     pub(crate) fn do_send_to_pty(&mut self, bytes: Vec<u8>) {
+        // Ctrl+C / Ctrl+\: only set discard_signal when the parser thread
+        // is actually behind the renderer (wakeup_pending=true), which means
+        // there is a real output backlog worth discarding.
+        //
+        // At an idle prompt wakeup_pending is false, so we skip the discard.
+        // Without this guard, Ctrl+C at idle would drain the shell's ^C echo
+        // and new prompt, leaving the terminal stuck and requiring the user
+        // to press Enter multiple times to get the prompt back.
+        let is_signal = bytes.len() == 1
+            && matches!(bytes[0], 0x03 | 0x1c)
+            && self
+                .wakeup_pending
+                .load(std::sync::atomic::Ordering::Acquire);
         let active = self.tab().active;
         if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
             let _ = entry.pty.write_input(&bytes);
-            // Ctrl+C (0x03) or Ctrl+\ (0x1c): signal the parser thread to
-            // discard its pending queue so the shell prompt appears immediately.
-            if bytes.len() == 1 && matches!(bytes[0], 0x03 | 0x1c) {
+            if is_signal {
                 entry
                     .discard_signal
                     .store(true, std::sync::atomic::Ordering::Release);
