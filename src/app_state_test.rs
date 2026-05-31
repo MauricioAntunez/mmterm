@@ -335,7 +335,7 @@ fn dispatch_scroll_up_adjusts_offset() {
     // Seed scrollback so scroll_up has room
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for _ in 0..30 {
-            e.pane.parser.grid.scroll_up(1);
+            e.pane.grid.write().unwrap().scroll_up(1);
         }
     }
     let before = s
@@ -361,7 +361,7 @@ fn dispatch_scroll_down_decrements_offset() {
     // Put some scrollback and scroll up first
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for _ in 0..10 {
-            e.pane.parser.grid.scroll_up(1);
+            e.pane.grid.write().unwrap().scroll_up(1);
         }
         e.pane.scroll_offset = 5;
     }
@@ -381,7 +381,7 @@ fn dispatch_scroll_to_top_sets_max_offset() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for _ in 0..10 {
-            e.pane.parser.grid.scroll_up(1);
+            e.pane.grid.write().unwrap().scroll_up(1);
         }
     }
     s.dispatch_action(Action::ScrollToTop);
@@ -389,7 +389,7 @@ fn dispatch_scroll_to_top_sets_max_offset() {
         .tab()
         .panes
         .get(&active)
-        .map(|e| e.pane.parser.grid.scrollback.len())
+        .map(|e| e.pane.grid.read().unwrap().scrollback.len())
         .unwrap_or(0);
     let off = s
         .tab()
@@ -423,7 +423,7 @@ fn dispatch_clear_scrollback_empties_it() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for _ in 0..5 {
-            e.pane.parser.grid.scroll_up(1);
+            e.pane.grid.write().unwrap().scroll_up(1);
         }
     }
     s.dispatch_action(Action::ClearScrollback);
@@ -431,7 +431,7 @@ fn dispatch_clear_scrollback_empties_it() {
         .tab()
         .panes
         .get(&active)
-        .map(|e| e.pane.parser.grid.scrollback.len())
+        .map(|e| e.pane.grid.read().unwrap().scrollback.len())
         .unwrap_or(99);
     assert_eq!(sb, 0);
 }
@@ -453,7 +453,7 @@ fn update_search_matches_finds_content() {
     // Write "needle" into the grid
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for c in "needle".chars() {
-            e.pane.parser.grid.write_char(c);
+            e.pane.grid.write().unwrap().write_char(c);
         }
     }
     s.mode = InputMode::Search {
@@ -488,7 +488,7 @@ fn dispatch_visual_word_forward_with_pane_does_not_panic() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for c in "hello world".chars() {
-            e.pane.parser.grid.write_char(c);
+            e.pane.grid.write().unwrap().write_char(c);
         }
     }
     s.mode = InputMode::Visual {
@@ -510,7 +510,7 @@ fn dispatch_visual_yank_line_exits_visual_mode() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for c in "hello".chars() {
-            e.pane.parser.grid.write_char(c);
+            e.pane.grid.write().unwrap().write_char(c);
         }
     }
     s.mode = InputMode::Visual {
@@ -530,7 +530,7 @@ fn dispatch_copy_with_anchored_selection_exits_visual() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for c in "hello".chars() {
-            e.pane.parser.grid.write_char(c);
+            e.pane.grid.write().unwrap().write_char(c);
         }
     }
     s.mode = InputMode::Visual {
@@ -554,11 +554,11 @@ fn visual_boundary_up_start_row_grows_beyond_one_page() {
         .tab()
         .panes
         .get(&active)
-        .map(|e| e.pane.parser.grid.rows)
+        .map(|e| e.pane.grid.read().unwrap().rows)
         .unwrap_or(1);
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for _ in 0..(grid_rows * 3) {
-            e.pane.parser.grid.scroll_up(1);
+            e.pane.grid.write().unwrap().scroll_up(1);
         }
     }
     s.mode = InputMode::Visual {
@@ -593,7 +593,7 @@ fn dispatch_visual_boundary_up_scrolls_pane() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for _ in 0..30 {
-            e.pane.parser.grid.scroll_up(1);
+            e.pane.grid.write().unwrap().scroll_up(1);
         }
     }
     s.mode = InputMode::Visual {
@@ -629,7 +629,7 @@ fn dispatch_visual_word_backward_moves_cursor() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for c in "hello world".chars() {
-            e.pane.parser.grid.write_char(c);
+            e.pane.grid.write().unwrap().write_char(c);
         }
     }
     s.mode = InputMode::Visual {
@@ -659,7 +659,7 @@ fn dispatch_visual_word_end_moves_cursor_forward() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for c in "hello world".chars() {
-            e.pane.parser.grid.write_char(c);
+            e.pane.grid.write().unwrap().write_char(c);
         }
     }
     s.mode = InputMode::Visual {
@@ -684,7 +684,7 @@ fn dispatch_visual_boundary_down_scrolls_pane() {
     // Add scrollback and scroll into it so scroll_down has room
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for _ in 0..30 {
-            e.pane.parser.grid.scroll_up(1);
+            e.pane.grid.write().unwrap().scroll_up(1);
         }
         e.pane.scroll_offset = 10;
     }
@@ -692,7 +692,7 @@ fn dispatch_visual_boundary_down_scrolls_pane() {
         .tab()
         .panes
         .get(&active)
-        .map(|e| e.pane.parser.grid.rows)
+        .map(|e| e.pane.grid.read().unwrap().rows)
         .unwrap_or(1);
     s.mode = InputMode::Visual {
         start_col: 0,
@@ -726,7 +726,7 @@ fn dispatch_scroll_up_adjusts_visual_coords() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for _ in 0..30 {
-            e.pane.parser.grid.scroll_up(1);
+            e.pane.grid.write().unwrap().scroll_up(1);
         }
     }
     s.mode = InputMode::Visual {
@@ -754,7 +754,7 @@ fn dispatch_scroll_down_adjusts_visual_coords() {
     let active = s.tab().active;
     if let Some(e) = s.tab_mut().panes.get_mut(&active) {
         for _ in 0..10 {
-            e.pane.parser.grid.scroll_up(1);
+            e.pane.grid.write().unwrap().scroll_up(1);
         }
         e.pane.scroll_offset = 5;
     }

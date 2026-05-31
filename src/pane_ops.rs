@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, RwLock};
 
 use crossbeam_channel::unbounded;
 
-use crate::terminal::grid::GridColors;
+use crate::drain;
+use crate::terminal::grid::{Grid, GridColors};
 use crate::ui::layout::{PANE_PADDING, TAB_BAR_H};
 use crate::ui::{Layout, Pane, SplitDir};
 use crate::{PaneEntry, TabState, logging, pty, tabs};
@@ -27,10 +29,9 @@ impl App {
             .metrics
             .grid_size_for(w.saturating_sub(pad2), h.saturating_sub(pad2));
         let t = &self.state.theme;
-        let pane = Pane::new_with_colors(
+        let grid = Arc::new(RwLock::new(Grid::with_colors(
             cols,
             rows,
-            rect,
             GridColors {
                 fg: t.foreground,
                 bg: t.background,
@@ -39,8 +40,9 @@ impl App {
                 palette: t.palette,
             },
             self.state.config.terminal.scrollback_lines,
-        );
-        let (tx, rx) = unbounded::<Vec<u8>>();
+        )));
+        let pane = Pane::new(grid.clone(), rect);
+        let (pty_tx, pty_rx) = unbounded::<Vec<u8>>();
         let shell = self
             .state
             .config
@@ -49,6 +51,7 @@ impl App {
             .clone()
             .or_else(|| std::env::var("SHELL").ok())
             .unwrap_or_else(|| "/bin/bash".to_string());
+        // Wakeup fires from parser thread (after each parsed batch).
         let proxy = self.proxy.clone();
         let wakeup_pending = Arc::clone(&self.wakeup_pending);
         let wakeup = Box::new(move || {
@@ -59,24 +62,38 @@ impl App {
         match pty::PtySession::spawn_with_shell(
             cols as u16,
             rows as u16,
-            tx,
+            pty_tx,
             &shell,
             cwd.as_ref(),
-            wakeup,
+            // PTY reader thread no longer calls wakeup; parser thread handles it.
+            Box::new(|| {}),
         ) {
             Ok(pty) => {
-                let log_file = if self.state.config.logging.auto_log {
+                let log_file_opt = if self.state.config.logging.auto_log {
                     open_log_file(id, &self.state.config.logging.log_dir)
                 } else {
                     None
                 };
+                let log_file = Arc::new(Mutex::new(log_file_opt));
+                let discard_signal = Arc::new(AtomicBool::new(false));
+                let (effects_tx, effects_rx) = unbounded::<drain::ParseEffect>();
+                let parser_thread = drain::spawn_parser_thread(
+                    pty_rx,
+                    grid,
+                    log_file.clone(),
+                    effects_tx,
+                    discard_signal.clone(),
+                    wakeup,
+                );
                 self.state.tabs[tab_idx].panes.insert(
                     id,
                     PaneEntry {
                         pane,
                         pty,
-                        rx,
+                        effects_rx,
                         log_file,
+                        discard_signal,
+                        _parser_thread: parser_thread,
                     },
                 );
             }
@@ -178,7 +195,11 @@ impl App {
                 let (cols, rows) = tab
                     .metrics
                     .grid_size_for(w.saturating_sub(pad2), h.saturating_sub(pad2));
-                if entry.pane.parser.grid.cols != cols || entry.pane.parser.grid.rows != rows {
+                let (grid_cols, grid_rows) = {
+                    let g = entry.pane.grid.read().unwrap();
+                    (g.cols, g.rows)
+                };
+                if grid_cols != cols || grid_rows != rows {
                     entry.pane.resize(cols, rows, rect);
                     let _ = entry.pty.resize(cols as u16, rows as u16);
                 }

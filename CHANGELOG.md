@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- move VT parsing to per-pane background threads; main thread now only renders and handles keyboard input, eliminating Ctrl+C lag caused by large PTY output backlogs
+- Ctrl+C and Ctrl+\ set a discard signal on the parser thread so pending output is dropped immediately instead of draining frame by frame
+
 ### Fixed
 - visual mode selection spanning multiple pages now copies all selected lines; previously `start_row` was clamped to the viewport height, so only the last page of a multi-page selection was copied
 

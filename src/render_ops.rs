@@ -114,64 +114,96 @@ impl App {
             (tab.layout.separators(), tab.zoomed, tab.active)
         };
 
-        let views = views::collect_pane_views(&self.state, w, h);
-        let tab_titles = views::build_tab_titles(&self.state);
+        // Clone grid Arcs so guards are independent of &self.state lifetime.
+        // This allows &mut self.state after the rendering block (e.g. screenshot clipboard).
+        let grid_arcs: Vec<(
+            usize,
+            std::sync::Arc<std::sync::RwLock<crate::terminal::Grid>>,
+        )> = {
+            let tab = &self.state.tabs[self.state.active_tab];
+            tab.panes
+                .iter()
+                .map(|(id, e)| (*id, e.pane.grid.clone()))
+                .collect()
+        };
 
-        let metrics = self.state.tabs[self.state.active_tab].metrics.clone();
-        let draw_separators: &[[u32; 4]] = if zoomed { &[] } else { &separators };
-        let home = std::env::var("HOME").unwrap_or_default();
-        let cwd_owned: Option<String> = self.state.tabs[self.state.active_tab]
-            .panes
-            .get(&active_id)
-            .and_then(|e| e.pane.parser.grid.cwd.as_deref())
-            .map(|p| statusbar::shorten_home(p, &home));
-        let right_text = statusbar::resolve(
-            &self.state.config.status_bar.right,
-            cwd_owned.as_deref(),
-            &Local::now(),
-        );
-        let bell_flash_intensity =
-            bell_flash_intensity(self.state.tabs[self.state.active_tab].bell_flash_start);
-        let is_logging = self.state.tabs[self.state.active_tab]
-            .panes
-            .get(&active_id)
-            .is_some_and(|e| e.log_file.is_some());
-        let pane_title_raw = self.state.tabs[self.state.active_tab]
-            .panes
-            .get(&active_id)
-            .and_then(|e| e.pane.parser.grid.osc_title.as_deref());
-        let pwd_in_right = self.state.config.status_bar.right.contains("%pwd");
-        let pane_title =
-            statusbar::pane_title_for_display(pane_title_raw, pwd_in_right, cwd_owned.as_deref());
-        self.renderer.draw(
-            pixels,
-            w,
-            h,
-            &views,
-            draw_separators,
-            &self.state.mode,
-            self.state.tabs[self.state.active_tab].passthrough,
-            &tab_titles,
-            &metrics,
-            self.state.search_matches.len(),
-            self.state.search_current,
-            right_text.as_deref(),
-            pane_title,
-            self.state.config.window.inactive_dim,
-            bell_flash_intensity,
-            self.state.config.general.visual_bell,
-            is_logging,
-            &self.state.theme,
-        );
+        let screenshot_outcome = {
+            let guards: Vec<(usize, std::sync::RwLockReadGuard<crate::terminal::Grid>)> = grid_arcs
+                .iter()
+                .map(|(id, arc)| (*id, arc.read().unwrap()))
+                .collect();
+            let views = views::collect_pane_views(&self.state, &guards, w, h);
+            let tab_titles = views::build_tab_titles(&self.state);
 
-        if let Some(([px, py, pw, ph], name)) = self.pending_screenshot.take() {
-            match screenshot::save_screenshot(
+            let metrics = self.state.tabs[self.state.active_tab].metrics.clone();
+            let draw_separators: &[[u32; 4]] = if zoomed { &[] } else { &separators };
+            let home = std::env::var("HOME").unwrap_or_default();
+            let cwd_owned: Option<String> = self.state.tabs[self.state.active_tab]
+                .panes
+                .get(&active_id)
+                .and_then(|e| e.pane.grid.read().unwrap().cwd.clone())
+                .map(|p| statusbar::shorten_home(&p, &home));
+            let right_text = statusbar::resolve(
+                &self.state.config.status_bar.right,
+                cwd_owned.as_deref(),
+                &Local::now(),
+            );
+            let bell_flash_intensity =
+                bell_flash_intensity(self.state.tabs[self.state.active_tab].bell_flash_start);
+            let is_logging = self.state.tabs[self.state.active_tab]
+                .panes
+                .get(&active_id)
+                .is_some_and(|e| e.log_file.lock().unwrap().is_some());
+            let pane_osc_title_owned: Option<String> = self.state.tabs[self.state.active_tab]
+                .panes
+                .get(&active_id)
+                .and_then(|e| e.pane.grid.read().unwrap().osc_title.clone());
+            let pane_title_raw = pane_osc_title_owned.as_deref();
+            let pwd_in_right = self.state.config.status_bar.right.contains("%pwd");
+            let pane_title = statusbar::pane_title_for_display(
+                pane_title_raw,
+                pwd_in_right,
+                cwd_owned.as_deref(),
+            );
+            self.renderer.draw(
                 pixels,
                 w,
-                [px, py, pw, ph],
-                &self.state.config.general.screenshot_dir,
-                &name,
-            ) {
+                h,
+                &views,
+                draw_separators,
+                &self.state.mode,
+                self.state.tabs[self.state.active_tab].passthrough,
+                &tab_titles,
+                &metrics,
+                self.state.search_matches.len(),
+                self.state.search_current,
+                right_text.as_deref(),
+                pane_title,
+                self.state.config.window.inactive_dim,
+                bell_flash_intensity,
+                self.state.config.general.visual_bell,
+                is_logging,
+                &self.state.theme,
+            );
+
+            // Capture screenshot before overlays; views/guards still alive here.
+            self.pending_screenshot
+                .take()
+                .map(|([px, py, pw, ph], name)| {
+                    screenshot::save_screenshot(
+                        pixels,
+                        w,
+                        [px, py, pw, ph],
+                        &self.state.config.general.screenshot_dir,
+                        &name,
+                    )
+                })
+            // guards, views dropped at end of block
+        };
+
+        // Apply screenshot result after views/guards are dropped (needs &mut self.state).
+        if let Some(result) = screenshot_outcome {
+            match result {
                 Ok(path) => self
                     .state
                     .copy_text_to_clipboard(path.to_string_lossy().into_owned()),
@@ -195,13 +227,10 @@ impl App {
     }
 
     pub(crate) fn handle_redraw_requested(&mut self, event_loop: &ActiveEventLoop) {
-        let (exited, has_more) = self.drain_all();
+        let exited = self.drain_effects();
         for (tab_idx, pane_id) in exited {
             self.close_pane_on_tab(tab_idx, pane_id, event_loop);
         }
         self.redraw();
-        if has_more && let Some(w) = &self.window {
-            w.request_redraw();
-        }
     }
 }
