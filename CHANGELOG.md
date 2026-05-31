@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - parser thread channel disconnect (panic without Disconnected effect) now correctly closes the pane instead of leaving it frozen
 - deadlock under heavy PTY output: `build_tab_titles` acquired grid read-locks inside the render guards block; a waiting writer (parser thread) caused Linux's writer-preference RwLock to block the new read, deadlocking the main thread
 - render loop no longer holds grid read-lock while acquiring log_file mutex, eliminating a potential stall window
+- viewport glitch on resize during active output: scroll_offset could exceed the actual scrollback after a resize shrank the scrollback, causing the view to show non-existent content; fixed by computing delta and new_sb atomically in pane.resize() and capping scroll_offset adjustments against the live scrollback length in drain_effects
 - visual mode selection spanning multiple pages now copies all selected lines; previously `start_row` was clamped to the viewport height, so only the last page of a multi-page selection was copied
 
 ### Changed

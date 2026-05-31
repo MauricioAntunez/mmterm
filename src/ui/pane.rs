@@ -18,10 +18,16 @@ impl Pane {
     }
 
     pub fn resize(&mut self, cols: usize, rows: usize, rect: [u32; 4]) {
-        let delta = self.grid.write().unwrap().resize(cols, rows);
+        // Compute delta and new_sb atomically within the write lock so the parser
+        // thread cannot add scrollback between the two reads.
+        let (delta, new_sb) = {
+            let mut g = self.grid.write().unwrap();
+            let delta = g.resize(cols, rows);
+            let new_sb = g.scrollback_len();
+            (delta, new_sb)
+        };
         self.rect = rect;
         if self.scroll_offset > 0 {
-            let new_sb = self.grid.read().unwrap().scrollback_len();
             self.scroll_offset = (self.scroll_offset as isize + delta).max(0) as usize;
             self.scroll_offset = self.scroll_offset.min(new_sb);
         }

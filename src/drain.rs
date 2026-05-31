@@ -182,7 +182,14 @@ impl App {
                                 && e.pane.scroll_offset > 0
                             {
                                 let added = new.saturating_sub(old);
-                                e.pane.scroll_offset = (e.pane.scroll_offset + added).min(new);
+                                // Cap by the CURRENT scrollback length, not the effect's
+                                // `new` value. A resize between effect generation and
+                                // drain could have shrunk the scrollback, making `new`
+                                // stale. Using `new` would allow scroll_offset > actual
+                                // scrollback, causing a viewport glitch.
+                                let current_sb = e.pane.grid.read().unwrap().scrollback_len();
+                                e.pane.scroll_offset =
+                                    (e.pane.scroll_offset + added).min(current_sb);
                             }
                         }
                         ParseEffect::Bell => {
