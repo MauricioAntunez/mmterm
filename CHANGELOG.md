@@ -15,7 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - render loop no longer holds grid read-lock while acquiring log_file mutex, eliminating a potential stall window
 - viewport glitch on resize during active output: scroll_offset could exceed the actual scrollback after a resize shrank the scrollback, causing the view to show non-existent content; fixed by computing delta and new_sb atomically in pane.resize() and capping scroll_offset adjustments against the live scrollback length in drain_effects
 - terminal frozen during heavy output (find /): parser thread held write lock back-to-back across batches, starving the render thread's read-lock requests; fixed with cooperative yielding (yield_now + 4 ms sleep when wakeup_pending) so the render thread gets regular access
-- Ctrl+C echoed only % in terminal: discard_signal drained the channel including the ^C echo when the render thread was keeping up; now the drain only happens when there is a real backlog (wakeup_pending=true)
+- Ctrl+C left terminal unresponsive after heavy output: the discard drained the channel including the shell's ^C echo and new prompt; fixed by draining, waiting 10 ms for find to fully die, then sending \r to the PTY so readline produces a fresh prompt at column 0 (zsh PROMPT_SP % for a partial last line is correct behavior)
 - visual mode selection spanning multiple pages now copies all selected lines; previously `start_row` was clamped to the viewport height, so only the last page of a multi-page selection was copied
 
 ### Changed

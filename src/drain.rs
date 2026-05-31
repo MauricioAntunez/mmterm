@@ -79,15 +79,27 @@ pub fn spawn_parser_thread(
                 }
             }
 
-            // Ctrl+C / Ctrl+\: discard the backlog only when the render thread
-            // is already behind (wakeup_pending=true → large queue exists).
-            // If the render thread is keeping up, the ^C echo and shell prompt
-            // are tiny and should be processed normally so the user sees "^C".
+            // Ctrl+C / Ctrl+\: discard find's output backlog.
+            //
+            // The shell's ^C echo and new prompt arrived at ~T+2–8 ms; the
+            // discard check runs at ~T+36 ms (end of current batch), so they
+            // are already in the channel and get drained.
+            //
+            // We do NOT send anything extra to the PTY.  Sending \r causes a
+            // double line-break: the TTY line discipline echoes \r as \r\n
+            // (ICRNL + ONLCR) AND readline produces its own \r\n for Enter.
+            //
+            // The zsh PROMPT_SP indicator (%) that appears on the next user
+            // interaction is CORRECT behaviour: it signals that the last output
+            // line was partial (no trailing newline).  Every other terminal
+            // emulator shows the same %.
             if discard_signal.swap(false, Ordering::AcqRel) {
-                if wakeup_pending.load(Ordering::Acquire) {
-                    while rx.try_recv().is_ok() {}
-                }
+                while rx.try_recv().is_ok() {}
                 wakeup();
+                std::thread::yield_now();
+                if wakeup_pending.load(Ordering::Acquire) {
+                    std::thread::sleep(std::time::Duration::from_millis(4));
+                }
                 continue;
             }
 
