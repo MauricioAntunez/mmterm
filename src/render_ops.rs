@@ -119,17 +119,24 @@ impl App {
         // guards, once for cwd/osc_title) can deadlock when a writer is waiting
         // (writer-preference RwLock semantics).
         let home = std::env::var("HOME").unwrap_or_default();
-        let (cwd_raw, pane_osc_title_raw, is_logging) = self.state.tabs[self.state.active_tab]
+        // Read grid metadata and logging state in separate lock acquisitions.
+        // log_file.lock() must not be held while grid.read() is held:
+        // the parser thread acquires log_file.lock first, then grid.write;
+        // holding grid.read + waiting for log_file can stall both threads.
+        let (cwd_raw, pane_osc_title_raw) = self.state.tabs[self.state.active_tab]
             .panes
             .get(&active_id)
             .map(|e| {
                 let g = e.pane.grid.read().unwrap();
                 let cwd = g.cwd.clone().map(|p| statusbar::shorten_home(&p, &home));
                 let osc_title = g.osc_title.clone();
-                let logging = e.log_file.lock().unwrap().is_some();
-                (cwd, osc_title, logging)
+                (cwd, osc_title)
             })
-            .unwrap_or((None, None, false));
+            .unwrap_or((None, None));
+        let is_logging = self.state.tabs[self.state.active_tab]
+            .panes
+            .get(&active_id)
+            .is_some_and(|e| e.log_file.lock().unwrap().is_some());
 
         // build_tab_titles acquires short-lived read-locks (osc_title) on pane grids.
         // It must run BEFORE the render guards block — holding read-locks via guards

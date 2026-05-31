@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Instant;
 
 use base64::Engine as _;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, TryRecvError};
 
 use crate::app_state::TabState;
 use crate::terminal::TerminalParser;
@@ -88,39 +88,39 @@ pub fn spawn_parser_thread(
                 let _ = f.write_all(&batch);
             }
 
-            // Parse bytes → mutate grid.
-            let old_sb = grid.read().unwrap().scrollback_len();
-            {
+            // Parse, scan URLs, and extract side-effects in a SINGLE write lock.
+            // Using two consecutive write locks per batch halves the render thread's
+            // window to acquire a read lock, increasing contention under heavy output.
+            let (old_sb, new_sb, resp, clipboard_write, clipboard_read, bell) = {
                 let mut g = grid.write().unwrap();
+                let old = g.scrollback_len();
                 parser.process(&batch, &mut g);
                 g.scan_urls();
-            }
+                let new = g.scrollback_len();
+                let resp = std::mem::take(&mut g.pending_responses);
+                let cw = g.pending_clipboard_write.take();
+                let cr = std::mem::take(&mut g.pending_clipboard_read);
+                let b = std::mem::take(&mut g.bell_pending);
+                (old, new, resp, cw, cr, b)
+            };
 
-            // Scrollback changed → scroll_offset compensation on main thread.
-            let new_sb = grid.read().unwrap().scrollback_len();
             if new_sb != old_sb {
                 let _ = effects_tx.send(ParseEffect::ScrollbackChanged {
                     old: old_sb,
                     new: new_sb,
                 });
             }
-
-            // Extract side-effects accumulated during parsing.
-            {
-                let mut g = grid.write().unwrap();
-                let resp = std::mem::take(&mut g.pending_responses);
-                if !resp.is_empty() {
-                    let _ = effects_tx.send(ParseEffect::PtyResponse(resp));
-                }
-                if let Some(t) = g.pending_clipboard_write.take() {
-                    let _ = effects_tx.send(ParseEffect::ClipboardWrite(t));
-                }
-                if std::mem::take(&mut g.pending_clipboard_read) {
-                    let _ = effects_tx.send(ParseEffect::ClipboardRead);
-                }
-                if std::mem::take(&mut g.bell_pending) {
-                    let _ = effects_tx.send(ParseEffect::Bell);
-                }
+            if !resp.is_empty() {
+                let _ = effects_tx.send(ParseEffect::PtyResponse(resp));
+            }
+            if let Some(t) = clipboard_write {
+                let _ = effects_tx.send(ParseEffect::ClipboardWrite(t));
+            }
+            if clipboard_read {
+                let _ = effects_tx.send(ParseEffect::ClipboardRead);
+            }
+            if bell {
+                let _ = effects_tx.send(ParseEffect::Bell);
             }
 
             wakeup();
@@ -153,18 +153,31 @@ impl App {
             let pane_ids: Vec<usize> = self.state.tabs[tab_idx].panes.keys().copied().collect();
             for pane_id in pane_ids {
                 loop {
-                    let effect = self.state.tabs[tab_idx]
+                    let recv = self.state.tabs[tab_idx]
                         .panes
                         .get_mut(&pane_id)
-                        .and_then(|e| e.effects_rx.try_recv().ok());
+                        .map(|e| e.effects_rx.try_recv());
+                    let effect = match recv {
+                        None | Some(Err(TryRecvError::Empty)) => break,
+                        // Parser thread panicked without sending Disconnected —
+                        // treat channel closure the same as an explicit Disconnected.
+                        Some(Err(TryRecvError::Disconnected)) => {
+                            deferred.push(Deferred {
+                                tab_idx,
+                                pane_id,
+                                kind: DeferredKind::Disconnected,
+                            });
+                            break;
+                        }
+                        Some(Ok(e)) => e,
+                    };
                     match effect {
-                        None => break,
-                        Some(ParseEffect::PtyResponse(r)) => {
+                        ParseEffect::PtyResponse(r) => {
                             if let Some(e) = self.state.tabs[tab_idx].panes.get_mut(&pane_id) {
                                 let _ = e.pty.write_input(&r);
                             }
                         }
-                        Some(ParseEffect::ScrollbackChanged { old, new }) => {
+                        ParseEffect::ScrollbackChanged { old, new } => {
                             if let Some(e) = self.state.tabs[tab_idx].panes.get_mut(&pane_id)
                                 && e.pane.scroll_offset > 0
                             {
@@ -172,24 +185,24 @@ impl App {
                                 e.pane.scroll_offset = (e.pane.scroll_offset + added).min(new);
                             }
                         }
-                        Some(ParseEffect::Bell) => {
+                        ParseEffect::Bell => {
                             bell_tabs.insert(tab_idx);
                         }
-                        Some(ParseEffect::ClipboardWrite(t)) => {
+                        ParseEffect::ClipboardWrite(t) => {
                             deferred.push(Deferred {
                                 tab_idx,
                                 pane_id,
                                 kind: DeferredKind::ClipboardWrite(t),
                             });
                         }
-                        Some(ParseEffect::ClipboardRead) => {
+                        ParseEffect::ClipboardRead => {
                             deferred.push(Deferred {
                                 tab_idx,
                                 pane_id,
                                 kind: DeferredKind::ClipboardRead,
                             });
                         }
-                        Some(ParseEffect::Disconnected) => {
+                        ParseEffect::Disconnected => {
                             deferred.push(Deferred {
                                 tab_idx,
                                 pane_id,
