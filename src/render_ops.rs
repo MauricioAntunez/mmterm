@@ -114,6 +114,29 @@ impl App {
             (tab.layout.separators(), tab.zoomed, tab.active)
         };
 
+        // Read grid metadata that needs a read-lock BEFORE acquiring render guards.
+        // Acquiring the same grid's read-lock twice from the same thread (once via
+        // guards, once for cwd/osc_title) can deadlock when a writer is waiting
+        // (writer-preference RwLock semantics).
+        let home = std::env::var("HOME").unwrap_or_default();
+        let (cwd_raw, pane_osc_title_raw, is_logging) = self.state.tabs[self.state.active_tab]
+            .panes
+            .get(&active_id)
+            .map(|e| {
+                let g = e.pane.grid.read().unwrap();
+                let cwd = g.cwd.clone().map(|p| statusbar::shorten_home(&p, &home));
+                let osc_title = g.osc_title.clone();
+                let logging = e.log_file.lock().unwrap().is_some();
+                (cwd, osc_title, logging)
+            })
+            .unwrap_or((None, None, false));
+
+        // build_tab_titles acquires short-lived read-locks (osc_title) on pane grids.
+        // It must run BEFORE the render guards block — holding read-locks via guards
+        // while also acquiring new read-locks causes a deadlock when the parser thread
+        // is waiting for the write-lock (Linux RwLock writer-preference blocks new readers).
+        let tab_titles = views::build_tab_titles(&self.state);
+
         // Clone grid Arcs so guards are independent of &self.state lifetime.
         // This allows &mut self.state after the rendering block (e.g. screenshot clipboard).
         let grid_arcs: Vec<(
@@ -133,38 +156,20 @@ impl App {
                 .map(|(id, arc)| (*id, arc.read().unwrap()))
                 .collect();
             let views = views::collect_pane_views(&self.state, &guards, w, h);
-            let tab_titles = views::build_tab_titles(&self.state);
 
             let metrics = self.state.tabs[self.state.active_tab].metrics.clone();
             let draw_separators: &[[u32; 4]] = if zoomed { &[] } else { &separators };
-            let home = std::env::var("HOME").unwrap_or_default();
-            let cwd_owned: Option<String> = self.state.tabs[self.state.active_tab]
-                .panes
-                .get(&active_id)
-                .and_then(|e| e.pane.grid.read().unwrap().cwd.clone())
-                .map(|p| statusbar::shorten_home(&p, &home));
             let right_text = statusbar::resolve(
                 &self.state.config.status_bar.right,
-                cwd_owned.as_deref(),
+                cwd_raw.as_deref(),
                 &Local::now(),
             );
             let bell_flash_intensity =
                 bell_flash_intensity(self.state.tabs[self.state.active_tab].bell_flash_start);
-            let is_logging = self.state.tabs[self.state.active_tab]
-                .panes
-                .get(&active_id)
-                .is_some_and(|e| e.log_file.lock().unwrap().is_some());
-            let pane_osc_title_owned: Option<String> = self.state.tabs[self.state.active_tab]
-                .panes
-                .get(&active_id)
-                .and_then(|e| e.pane.grid.read().unwrap().osc_title.clone());
-            let pane_title_raw = pane_osc_title_owned.as_deref();
+            let pane_title_raw = pane_osc_title_raw.as_deref();
             let pwd_in_right = self.state.config.status_bar.right.contains("%pwd");
-            let pane_title = statusbar::pane_title_for_display(
-                pane_title_raw,
-                pwd_in_right,
-                cwd_owned.as_deref(),
-            );
+            let pane_title =
+                statusbar::pane_title_for_display(pane_title_raw, pwd_in_right, cwd_raw.as_deref());
             self.renderer.draw(
                 pixels,
                 w,

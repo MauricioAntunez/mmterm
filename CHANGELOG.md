@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Ctrl+C and Ctrl+\ set a discard signal on the parser thread so pending output is dropped immediately instead of draining frame by frame
 
 ### Fixed
+- deadlock under heavy PTY output: `build_tab_titles` acquired grid read-locks inside the render guards block; a waiting writer (parser thread) caused Linux's writer-preference RwLock to block the new read, deadlocking the main thread
 - visual mode selection spanning multiple pages now copies all selected lines; previously `start_row` was clamped to the viewport height, so only the last page of a multi-page selection was copied
 
 ### Changed
