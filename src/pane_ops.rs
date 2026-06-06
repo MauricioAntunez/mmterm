@@ -54,12 +54,15 @@ impl App {
         // Wakeup fires from parser thread (after each parsed batch).
         let proxy = self.proxy.clone();
         let app_wakeup_pending = Arc::clone(&self.wakeup_pending);
-        let wakeup_pending_for_parser = Arc::clone(&self.wakeup_pending);
         // Per-pane flag: tracks whether THIS pane has an active output backlog.
         // Checked in do_send_to_pty so that Ctrl+C on an idle pane never sets
         // discard_signal just because a different pane is producing output.
+        // The parser thread sets it true on each batch and resets it to false
+        // when its recv_timeout fires (pane idle for IDLE_TIMEOUT). Storing it
+        // in ParserThreadArgs lets the parser do the reset without a channel round-trip.
         let pane_wakeup: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
         let pane_wakeup_for_closure = Arc::clone(&pane_wakeup);
+        let wakeup_pending_for_parser = Arc::clone(&pane_wakeup);
         let wakeup = Box::new(move || {
             pane_wakeup_for_closure.store(true, Ordering::Release);
             if !app_wakeup_pending.swap(true, Ordering::AcqRel) {

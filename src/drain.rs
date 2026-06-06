@@ -94,7 +94,12 @@ pub fn spawn_parser_thread(args: ParserThreadArgs) -> thread::JoinHandle<()> {
             let first = match rx.recv_timeout(IDLE_TIMEOUT) {
                 Ok(b) => b,
                 Err(RecvTimeoutError::Timeout) => {
-                    // No PTY data; check for a pending resize and apply it.
+                    // No PTY data for IDLE_TIMEOUT: mark pane as idle so that
+                    // do_send_to_pty no longer treats this pane as having an active
+                    // backlog. This prevents Ctrl+C from firing discard_signal at
+                    // an idle shell prompt.
+                    wakeup_pending.store(false, Ordering::Release);
+                    // Also check for a pending resize while the channel is quiet.
                     let pending = pending_resize.lock().unwrap().take();
                     if let Some((new_cols, new_rows)) = pending {
                         let mut g = grid.write().unwrap();
@@ -258,13 +263,6 @@ impl App {
         for tab_idx in 0..self.state.tabs.len() {
             let pane_ids: Vec<usize> = self.state.tabs[tab_idx].panes.keys().copied().collect();
             for pane_id in pane_ids {
-                // Reset per-pane wakeup flag before draining: if the parser fires another
-                // wakeup during this drain, the flag will be re-set, accurately tracking
-                // whether there is a current output backlog for this specific pane.
-                if let Some(e) = self.state.tabs[tab_idx].panes.get_mut(&pane_id) {
-                    e.wakeup_pending
-                        .store(false, std::sync::atomic::Ordering::Release);
-                }
                 loop {
                     let recv = self.state.tabs[tab_idx]
                         .panes
