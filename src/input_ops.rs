@@ -202,12 +202,14 @@ impl App {
         // Without this guard, Ctrl+C at idle would drain the shell's ^C echo
         // and new prompt, leaving the terminal stuck and requiring the user
         // to press Enter multiple times to get the prompt back.
+        let active = self.tab().active;
         let is_signal = bytes.len() == 1
             && matches!(bytes[0], 0x03 | 0x1c)
             && self
-                .wakeup_pending
-                .load(std::sync::atomic::Ordering::Acquire);
-        let active = self.tab().active;
+                .tab()
+                .panes
+                .get(&active)
+                .is_some_and(|e| e.wakeup_pending.load(std::sync::atomic::Ordering::Acquire));
         if let Some(entry) = self.tab_mut().panes.get_mut(&active) {
             let _ = entry.pty.write_input(&bytes);
             if is_signal {

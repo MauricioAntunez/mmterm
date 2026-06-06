@@ -31,6 +31,15 @@ pub struct PaneEntry {
     /// Shared flag: main thread sets true on Ctrl+C/Ctrl+\; parser thread
     /// drains and discards its queue when it sees true.
     pub discard_signal: Arc<AtomicBool>,
+    /// Per-pane output-backlog flag: set to true by this pane's parser thread
+    /// wakeup closure, reset to false by drain_effects before draining the pane.
+    /// Used in do_send_to_pty to gate discard_signal — only set discard on the
+    /// pane that actually has a backlog, not every pane when any pane is active.
+    pub wakeup_pending: Arc<AtomicBool>,
+    /// Non-blocking resize request: main thread writes Some((cols, rows));
+    /// parser thread applies grid.resize() within its existing write lock and
+    /// clears the Option. Avoids blocking the event loop on grid.write().
+    pub pending_resize: Arc<Mutex<Option<(usize, usize)>>>,
     pub(crate) _parser_thread: std::thread::JoinHandle<()>,
 }
 
@@ -946,16 +955,18 @@ impl AppState {
         let pane = Pane::new(grid.clone(), [0, 22, 800, 556]);
         let log_file = Arc::new(Mutex::new(None));
         let discard_signal = Arc::new(AtomicBool::new(false));
+        let pending_resize = Arc::new(Mutex::new(None));
         let (effects_tx, effects_rx) = unbounded::<drain::ParseEffect>();
-        let parser_thread = drain::spawn_parser_thread(
-            pty_rx,
+        let parser_thread = drain::spawn_parser_thread(drain::ParserThreadArgs {
+            rx: pty_rx,
             grid,
-            log_file.clone(),
+            log_file: log_file.clone(),
             effects_tx,
-            discard_signal.clone(),
-            Arc::new(AtomicBool::new(false)), // test: no wakeup_pending needed
-            Box::new(|| {}),
-        );
+            discard_signal: discard_signal.clone(),
+            wakeup_pending: Arc::new(AtomicBool::new(false)), // test: no wakeup_pending needed
+            pending_resize: pending_resize.clone(),
+            wakeup: Box::new(|| {}),
+        });
         let tab_idx = self.active_tab;
         self.tabs[tab_idx].panes.insert(
             id,
@@ -965,6 +976,8 @@ impl AppState {
                 effects_rx,
                 log_file,
                 discard_signal,
+                wakeup_pending: Arc::new(AtomicBool::new(false)),
+                pending_resize,
                 _parser_thread: parser_thread,
             },
         );

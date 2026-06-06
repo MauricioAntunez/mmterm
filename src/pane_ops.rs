@@ -53,10 +53,16 @@ impl App {
             .unwrap_or_else(|| "/bin/bash".to_string());
         // Wakeup fires from parser thread (after each parsed batch).
         let proxy = self.proxy.clone();
-        let wakeup_pending = Arc::clone(&self.wakeup_pending);
+        let app_wakeup_pending = Arc::clone(&self.wakeup_pending);
         let wakeup_pending_for_parser = Arc::clone(&self.wakeup_pending);
+        // Per-pane flag: tracks whether THIS pane has an active output backlog.
+        // Checked in do_send_to_pty so that Ctrl+C on an idle pane never sets
+        // discard_signal just because a different pane is producing output.
+        let pane_wakeup: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        let pane_wakeup_for_closure = Arc::clone(&pane_wakeup);
         let wakeup = Box::new(move || {
-            if !wakeup_pending.swap(true, Ordering::AcqRel) {
+            pane_wakeup_for_closure.store(true, Ordering::Release);
+            if !app_wakeup_pending.swap(true, Ordering::AcqRel) {
                 let _ = proxy.send_event(());
             }
         });
@@ -77,16 +83,18 @@ impl App {
                 };
                 let log_file = Arc::new(Mutex::new(log_file_opt));
                 let discard_signal = Arc::new(AtomicBool::new(false));
+                let pending_resize: Arc<Mutex<Option<(usize, usize)>>> = Arc::new(Mutex::new(None));
                 let (effects_tx, effects_rx) = unbounded::<drain::ParseEffect>();
-                let parser_thread = drain::spawn_parser_thread(
-                    pty_rx,
+                let parser_thread = drain::spawn_parser_thread(drain::ParserThreadArgs {
+                    rx: pty_rx,
                     grid,
-                    log_file.clone(),
+                    log_file: log_file.clone(),
                     effects_tx,
-                    discard_signal.clone(),
-                    wakeup_pending_for_parser,
+                    discard_signal: discard_signal.clone(),
+                    wakeup_pending: wakeup_pending_for_parser,
+                    pending_resize: pending_resize.clone(),
                     wakeup,
-                );
+                });
                 self.state.tabs[tab_idx].panes.insert(
                     id,
                     PaneEntry {
@@ -95,6 +103,8 @@ impl App {
                         effects_rx,
                         log_file,
                         discard_signal,
+                        wakeup_pending: pane_wakeup,
+                        pending_resize,
                         _parser_thread: parser_thread,
                     },
                 );
@@ -202,7 +212,14 @@ impl App {
                     (g.cols, g.rows)
                 };
                 if grid_cols != cols || grid_rows != rows {
-                    entry.pane.resize(cols, rows, rect);
+                    // Update rect immediately so the renderer uses the new layout
+                    // on the very next frame (no lock needed — rect is main-thread state).
+                    entry.pane.rect = rect;
+                    // Signal the parser thread to apply grid.resize() within its
+                    // existing write lock. This avoids blocking the event loop on
+                    // grid.write() while the parser holds it (up to ~36 ms), keeping
+                    // resize fluid even during heavy output.
+                    *entry.pending_resize.lock().unwrap() = Some((cols, rows));
                     let _ = entry.pty.resize(cols as u16, rows as u16);
                 }
             }

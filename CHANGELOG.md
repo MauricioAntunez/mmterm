@@ -10,6 +10,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Ctrl+C and Ctrl+\ set a discard signal on the parser thread so pending output is dropped immediately instead of draining frame by frame
 
 ### Fixed
+- scrollback offset double-adjustment when parse and resize landed in the same batch: `ScrollbackChanged.new` was sampled after `grid.resize()`, so the resize delta was counted twice in `scroll_offset`; fixed by sampling before the resize
+- Ctrl+C on an idle pane no longer discards output when a different pane has a backlog: `wakeup_pending` is now tracked per-pane so the discard guard only fires for the pane that actually has pending data
+- pending grid resize is now applied immediately in the discard path (Ctrl+C during resize); previously the resize was deferred up to 50 ms, causing the shell's post-SIGWINCH redraw to be parsed against old grid dimensions
+- `pending_resize` mutex is now `.unwrap()`-ed consistently with all other `Mutex::lock()` calls; a poisoned mutex no longer silently skips the resize, leaving PTY and grid dimensions permanently diverged
+- lock-ordering inversion between `pending_resize` and `grid.write()` removed by extracting the pending value before entering the write lock in both the idle and batch paths
+- resize during heavy output no longer stalls the event loop; grid resize is now delegated to the parser thread via a pending_resize signal, so the main thread never blocks on grid.write() during a window resize
 - parser thread channel disconnect (panic without Disconnected effect) now correctly closes the pane instead of leaving it frozen
 - deadlock under heavy PTY output: `build_tab_titles` acquired grid read-locks inside the render guards block; a waiting writer (parser thread) caused Linux's writer-preference RwLock to block the new read, deadlocking the main thread
 - render loop no longer holds grid read-lock while acquiring log_file mutex, eliminating a potential stall window

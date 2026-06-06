@@ -76,15 +76,17 @@ fn make_pane_entry() -> (PaneEntry, crossbeam_channel::Sender<Vec<u8>>) {
     // Second channel: test controls parser input via test_tx
     let (test_tx, test_rx) = unbounded::<Vec<u8>>();
 
-    let parser_thread = spawn_parser_thread(
-        test_rx,
+    let pending_resize = Arc::new(std::sync::Mutex::new(None));
+    let parser_thread = spawn_parser_thread(crate::drain::ParserThreadArgs {
+        rx: test_rx,
         grid,
-        log_file.clone(),
+        log_file: log_file.clone(),
         effects_tx,
-        discard_signal.clone(),
-        Arc::new(AtomicBool::new(false)), // tests don't need wakeup_pending
-        Box::new(|| {}),
-    );
+        discard_signal: discard_signal.clone(),
+        wakeup_pending: Arc::new(AtomicBool::new(false)), // tests don't need wakeup_pending
+        pending_resize: pending_resize.clone(),
+        wakeup: Box::new(|| {}),
+    });
 
     let entry = PaneEntry {
         pane,
@@ -92,6 +94,8 @@ fn make_pane_entry() -> (PaneEntry, crossbeam_channel::Sender<Vec<u8>>) {
         effects_rx,
         log_file,
         discard_signal,
+        wakeup_pending: Arc::new(AtomicBool::new(false)),
+        pending_resize,
         _parser_thread: parser_thread,
     };
 
@@ -175,6 +179,60 @@ fn scrollback_delta_sent_when_lines_pushed() {
     assert!(
         total_delta > 0,
         "expected ScrollbackDelta after filling grid"
+    );
+}
+
+// ── pending_resize ────────────────────────────────────────────────────────────
+
+#[test]
+fn pending_resize_applied_in_discard_path() {
+    use std::sync::atomic::Ordering;
+
+    let (entry, tx) = make_pane_entry();
+    // Queue output that will be discarded.
+    for _ in 0..20 {
+        tx.send(b"AAAAA\r\n".to_vec()).unwrap();
+    }
+    // Request a grid resize via the pending_resize mailbox.
+    *entry.pending_resize.lock().unwrap() = Some((100, 40));
+    // Trigger discard.
+    entry.discard_signal.store(true, Ordering::Release);
+
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    // Grid should have been resized by the parser thread during the discard path.
+    let g = entry.pane.grid.read().unwrap();
+    assert_eq!(
+        (g.cols, g.rows),
+        (100, 40),
+        "grid should be resized to (100, 40) even when discard fires"
+    );
+
+    // A Resized effect should have been sent.
+    let mut saw_resized = false;
+    while let Ok(e) = entry.effects_rx.try_recv() {
+        if matches!(e, ParseEffect::Resized { .. }) {
+            saw_resized = true;
+        }
+    }
+    assert!(
+        saw_resized,
+        "expected ParseEffect::Resized from discard path"
+    );
+}
+
+#[test]
+fn wakeup_pending_field_tracks_per_pane_activity() {
+    use std::sync::atomic::Ordering;
+
+    // Verify that wakeup_pending starts false and that after sending data
+    // the parser fires wakeup (which in production sets the per-pane flag).
+    // In tests the wakeup closure is a no-op, so we can't observe the flag
+    // being set — but we can confirm it starts false and the field compiles.
+    let (entry, _tx) = make_pane_entry();
+    assert!(
+        !entry.wakeup_pending.load(Ordering::Acquire),
+        "wakeup_pending should start false"
     );
 }
 

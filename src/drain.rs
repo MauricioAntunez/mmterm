@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Instant;
 
 use base64::Engine as _;
-use crossbeam_channel::{Receiver, Sender, TryRecvError};
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 
 use crate::app_state::TabState;
 use crate::terminal::TerminalParser;
@@ -31,6 +31,13 @@ pub enum ParseEffect {
         old: usize,
         new: usize,
     },
+    /// Grid was resized by the parser thread; main thread adjusts scroll_offset.
+    Resized {
+        /// Signed delta from Grid::resize (positive = lines added to scrollback).
+        delta: isize,
+        /// Scrollback length after resize.
+        new_sb: usize,
+    },
     /// Parser thread's PTY EOF — pane should be closed.
     Disconnected,
 }
@@ -41,6 +48,20 @@ pub enum ParseEffect {
 /// Caps write-lock duration at ~36 ms (32 KiB / 885 KiB/s).
 const PARSE_BATCH_MAX: usize = 32 * 1024;
 
+/// Arguments for [`spawn_parser_thread`].
+pub struct ParserThreadArgs {
+    pub rx: Receiver<Vec<u8>>,
+    pub grid: Arc<RwLock<Grid>>,
+    pub log_file: Arc<Mutex<Option<std::fs::File>>>,
+    pub effects_tx: Sender<ParseEffect>,
+    pub discard_signal: Arc<AtomicBool>,
+    pub wakeup_pending: Arc<AtomicBool>,
+    /// Non-blocking resize request set by the main thread; parser applies it
+    /// within its existing write lock so the event loop never blocks on grid.write().
+    pub pending_resize: Arc<Mutex<Option<(usize, usize)>>>,
+    pub wakeup: Box<dyn Fn() + Send + 'static>,
+}
+
 /// Spawn a per-pane parser thread that owns the VTE state machine.
 /// The thread reads PTY bytes from `rx`, parses them into `grid` (write lock),
 /// and sends side-effects to `effects_tx`. Responds to `discard_signal` by
@@ -49,22 +70,43 @@ const PARSE_BATCH_MAX: usize = 32 * 1024;
 /// `wakeup_pending` is the same atomic used by the wakeup closure. The parser
 /// thread reads it to decide how long to yield after each batch — ensuring the
 /// render thread can acquire the grid read-lock regularly even during heavy output.
-pub fn spawn_parser_thread(
-    rx: Receiver<Vec<u8>>,
-    grid: Arc<RwLock<Grid>>,
-    log_file: Arc<Mutex<Option<std::fs::File>>>,
-    effects_tx: Sender<ParseEffect>,
-    discard_signal: Arc<AtomicBool>,
-    wakeup_pending: Arc<AtomicBool>,
-    wakeup: Box<dyn Fn() + Send + 'static>,
-) -> thread::JoinHandle<()> {
+pub fn spawn_parser_thread(args: ParserThreadArgs) -> thread::JoinHandle<()> {
+    let ParserThreadArgs {
+        rx,
+        grid,
+        log_file,
+        effects_tx,
+        discard_signal,
+        wakeup_pending,
+        pending_resize,
+        wakeup,
+    } = args;
     thread::spawn(move || {
         let mut parser = TerminalParser::new();
+        // Maximum time to wait for PTY bytes before checking for a pending resize.
+        const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(50);
+
         loop {
-            // Block until first chunk arrives from PTY reader thread.
-            let first = match rx.recv() {
+            // Wait for the first chunk from the PTY reader thread.
+            // Use a timeout so that a pending resize is applied even when the
+            // terminal is idle (no PTY output) — e.g. user resizes after Ctrl+C
+            // but before the shell redraws its prompt.
+            let first = match rx.recv_timeout(IDLE_TIMEOUT) {
                 Ok(b) => b,
-                Err(_) => {
+                Err(RecvTimeoutError::Timeout) => {
+                    // No PTY data; check for a pending resize and apply it.
+                    let pending = pending_resize.lock().unwrap().take();
+                    if let Some((new_cols, new_rows)) = pending {
+                        let mut g = grid.write().unwrap();
+                        let delta = g.resize(new_cols, new_rows);
+                        let new_sb = g.scrollback_len();
+                        drop(g);
+                        let _ = effects_tx.send(ParseEffect::Resized { delta, new_sb });
+                        wakeup();
+                    }
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => {
                     let _ = effects_tx.send(ParseEffect::Disconnected);
                     return;
                 }
@@ -95,6 +137,17 @@ pub fn spawn_parser_thread(
             // emulator shows the same %.
             if discard_signal.swap(false, Ordering::AcqRel) {
                 while rx.try_recv().is_ok() {}
+                // Apply pending resize immediately so the grid matches PTY dimensions.
+                // Without this, the shell redraws its prompt at the new width but the
+                // grid is still old-sized, causing parse mismatches for up to IDLE_TIMEOUT.
+                let pending = pending_resize.lock().unwrap().take();
+                if let Some((new_cols, new_rows)) = pending {
+                    let mut g = grid.write().unwrap();
+                    let delta = g.resize(new_cols, new_rows);
+                    let new_sb = g.scrollback_len();
+                    drop(g);
+                    let _ = effects_tx.send(ParseEffect::Resized { delta, new_sb });
+                }
                 wakeup();
                 std::thread::yield_now();
                 if wakeup_pending.load(Ordering::Acquire) {
@@ -110,20 +163,30 @@ pub fn spawn_parser_thread(
                 let _ = f.write_all(&batch);
             }
 
-            // Parse, scan URLs, and extract side-effects in a SINGLE write lock.
-            // Using two consecutive write locks per batch halves the render thread's
-            // window to acquire a read lock, increasing contention under heavy output.
-            let (old_sb, new_sb, resp, clipboard_write, clipboard_read, bell) = {
+            // Extract pending resize BEFORE the write lock (no nested lock acquisition).
+            let pending = pending_resize.lock().unwrap().take();
+
+            // Parse, scan URLs, optionally resize, and extract side-effects in one write lock.
+            // Resize is applied here so the main thread never calls grid.write() — it just
+            // sets pending_resize and returns, keeping the event loop and renders fluid.
+            let (old_sb, new_sb, resp, clipboard_write, clipboard_read, bell, resize_effect) = {
                 let mut g = grid.write().unwrap();
                 let old = g.scrollback_len();
                 parser.process(&batch, &mut g);
                 g.scan_urls();
-                let new = g.scrollback_len();
+                let new = g.scrollback_len(); // parse-only scrollback delta (before any resize)
+                let resize_effect = pending.map(|(new_cols, new_rows)| {
+                    let delta = g.resize(new_cols, new_rows);
+                    ParseEffect::Resized {
+                        delta,
+                        new_sb: g.scrollback_len(),
+                    }
+                });
                 let resp = std::mem::take(&mut g.pending_responses);
                 let cw = g.pending_clipboard_write.take();
                 let cr = std::mem::take(&mut g.pending_clipboard_read);
                 let b = std::mem::take(&mut g.bell_pending);
-                (old, new, resp, cw, cr, b)
+                (old, new, resp, cw, cr, b, resize_effect)
             };
 
             if new_sb != old_sb {
@@ -131,6 +194,9 @@ pub fn spawn_parser_thread(
                     old: old_sb,
                     new: new_sb,
                 });
+            }
+            if let Some(effect) = resize_effect {
+                let _ = effects_tx.send(effect);
             }
             if !resp.is_empty() {
                 let _ = effects_tx.send(ParseEffect::PtyResponse(resp));
@@ -192,6 +258,13 @@ impl App {
         for tab_idx in 0..self.state.tabs.len() {
             let pane_ids: Vec<usize> = self.state.tabs[tab_idx].panes.keys().copied().collect();
             for pane_id in pane_ids {
+                // Reset per-pane wakeup flag before draining: if the parser fires another
+                // wakeup during this drain, the flag will be re-set, accurately tracking
+                // whether there is a current output backlog for this specific pane.
+                if let Some(e) = self.state.tabs[tab_idx].panes.get_mut(&pane_id) {
+                    e.wakeup_pending
+                        .store(false, std::sync::atomic::Ordering::Release);
+                }
                 loop {
                     let recv = self.state.tabs[tab_idx]
                         .panes
@@ -230,6 +303,15 @@ impl App {
                                 let current_sb = e.pane.grid.read().unwrap().scrollback_len();
                                 e.pane.scroll_offset =
                                     (e.pane.scroll_offset + added).min(current_sb);
+                            }
+                        }
+                        ParseEffect::Resized { delta, new_sb } => {
+                            if let Some(e) = self.state.tabs[tab_idx].panes.get_mut(&pane_id)
+                                && e.pane.scroll_offset > 0
+                            {
+                                e.pane.scroll_offset =
+                                    ((e.pane.scroll_offset as isize) + delta).max(0) as usize;
+                                e.pane.scroll_offset = e.pane.scroll_offset.min(new_sb);
                             }
                         }
                         ParseEffect::Bell => {
