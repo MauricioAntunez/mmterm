@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-07
+
 ### Fixed
 - macOS release binary crashed on launch with `Library not loaded: libfreetype.6.dylib`; freetype is now statically linked in release builds
 
