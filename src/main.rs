@@ -163,19 +163,17 @@ impl App {
     fn on_update_available(&mut self, v: crate::update::Version) {
         #[cfg(target_os = "linux")]
         {
-            if self.state.config.general.auto_update_install {
-                if let Ok(exe) = std::env::current_exe() {
-                    if let crate::update::InstallTarget::Writable(path) =
-                        crate::update::detect_install_target(&exe, env!("MMTERM_VERSION"))
-                    {
-                        let (tx, rx) = std::sync::mpsc::channel();
-                        std::thread::spawn(move || {
-                            let _ = tx.send(crate::update::apply_linux_update(&path).map(|_| v));
-                        });
-                        self.update_apply_rx = Some(rx);
-                        return;
-                    }
-                }
+            if self.state.config.general.auto_update_install
+                && let Ok(exe) = std::env::current_exe()
+                && let crate::update::InstallTarget::Writable(path) =
+                    crate::update::detect_install_target(&exe, env!("MMTERM_VERSION"))
+            {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(crate::update::apply_linux_update(&path).map(|_| v));
+                });
+                self.update_apply_rx = Some(rx);
+                return;
             }
             self.state.available_update = Some(v); // not eligible -> notify only
         }
