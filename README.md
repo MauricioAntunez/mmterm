@@ -186,6 +186,26 @@ palette    = [ ... ]      # 16-color ANSI palette
 
 You can also edit settings live with `Ctrl+,`.
 
+### Automatic updates
+
+mmterm checks GitHub for a newer release at most once per day (one request on startup).
+
+- **Linux:** by default, an `↑X.Y.Z` badge appears in the status bar when an update is
+  available; re-run the installer to update. You can opt in to **silent background
+  self-update** (download + checksum-verify + atomically replace the binary, applied on
+  next launch) by setting `auto_update_install = true`; this only applies to user-writable
+  installs (`~/.local/bin`, `~/.cargo/bin`), never system installs.
+- **macOS:** an `↑X.Y.Z` badge appears in the status bar; click it to download and open the
+  `.dmg`, then drag mmterm.app to Applications.
+
+Disable via `~/.config/mmterm/config.toml`:
+
+```toml
+[general]
+auto_update_check = false    # turn off the daily check + badge entirely
+auto_update_install = true   # Linux: opt in to silent self-replace (default: off)
+```
+
 ## Key Bindings
 
 ### Global

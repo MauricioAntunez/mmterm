@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - macOS `.dmg` packaging an ad-hoc-signed `mmterm.app` for drag-to-Applications install
+- daily update check that detects a newer release and shows a status-bar update badge (opt-out via `general.auto_update_check`); no binary is downloaded on detection. Automatic background self-update on Linux is strictly opt-in and defaults off (`general.auto_update_install`); macOS shows a click-to-update badge
 
 ### Changed
 - `install.sh` on macOS now downloads and opens the `.dmg` instead of installing a bare binary
