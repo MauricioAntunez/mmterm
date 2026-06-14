@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - configurable keymap: override, add, or disable modifier shortcuts (Ctrl / Ctrl+Shift / Alt / ⌘-Super and `Ctrl+W` chords) from a new `[keybindings]` config table; `"binding" = "action-name"` (`"none"` disables a default); invalid entries are skipped, logged, and surfaced as a transient status-bar notice
 - macOS Command (⌘) / Linux Super keyboard shortcuts: ⌘V paste, ⌘C copy, ⌘N/⌘T new tab, ⌘W close tab, ⌘1–⌘9 select tab, ⌘Q quit, ⌘, config, ⌘F search, ⌘K clear scrollback, ⌘+/⌘-/⌘= font size. Previously only Ctrl/Ctrl+Shift bindings were recognized, so ⌘V did not paste on macOS (these ⌘ defaults are now user-overridable via [keybindings])
+- remap discrete Normal- and Visual-mode keys via the `normal:` / `visual:` config scopes (e.g. `normal:i = enter_insert_mode`, `visual:y = copy`); cursor movement and Escape stay hardcoded
 
 ### Changed
 - reorganize `src/` flat files into module subdirectories: `config/`, `session/`, `theme/`, `input/` (+ motion, mouse), `ui/` (+ command_palette, statusbar, tabs), `renderer/` (+ views, render_ops, screenshot)

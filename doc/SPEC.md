@@ -501,10 +501,16 @@ mmterm's modifier shortcuts are a single data-driven table (`src/input/keymap.rs
 | `increase_font_size`, `decrease_font_size`, `reset_font_size` | font |
 | `open_config`, `open_command_palette`, `toggle_fullscreen`, `toggle_log`, `toggle_passthrough`, `screenshot_open`, `quit` | app / ui |
 | `cycle_mode`, `enter_normal_mode` | mode |
+| `enter_insert_mode`, `enter_visual_mode`, `scroll_line_up`, `scroll_line_down` | Normal-mode discrete (scoped `normal:`) |
+| `visual_word_forward`, `visual_word_backward`, `visual_word_end`, `visual_anchor`, `visual_swap_anchor`, `visual_yank_line` | Visual-mode discrete (scoped `visual:`) |
 | `ctrl_w_prefix` | start a `Ctrl+W` chord |
 
-Modal (`normal:` / `visual:`) remapping is a future phase; literal text and cursor/PTY
-encoding are never bindable — they are the fallback when no binding matches.
+The `normal:` / `visual:` scopes remap the discrete Normal- and Visual-mode keys
+(prefix the binding, e.g. `normal:i = enter_insert_mode`, `visual:y = copy`). Modal
+lookup is modifier-agnostic and case-sensitive on the glyph (`normal:N` ≠ `normal:n`).
+Cursor-movement grammar (Visual `h l k j 0 $ g G`, arrows, Home/End, Page keys) and the
+universal `Escape` (→ Insert) stay hardcoded and are NOT bindable. Literal text and
+cursor/PTY encoding are never bindable — they are the fallback when no binding matches.
 
 ### Global (all modes)
 
