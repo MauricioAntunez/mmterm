@@ -74,7 +74,11 @@ pub fn parse_binding(raw: &str) -> Result<(ModeClass, BindingKey), String> {
     let head = parts.next().unwrap_or("").trim();
     let tail = parts.next().map(str::trim).filter(|s| !s.is_empty());
 
-    let (mods, token) = parse_combo(head, /* lowercase */ true)?;
+    // Global scope folds single-letter keys to lowercase (modifier-sensitive
+    // matching). Modal scopes (Normal/Visual) preserve the glyph's case because
+    // modal dispatch matches the exact case-preserved glyph (`N` != `n`).
+    let lowercase_head = scope == ModeClass::Global;
+    let (mods, token) = parse_combo(head, lowercase_head)?;
     let chord_tail = match tail {
         Some(t) => {
             let (tmods, ttoken) = parse_combo(t, /* lowercase */ false)?;

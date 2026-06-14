@@ -79,6 +79,37 @@ fn parse_mode_prefix() {
 }
 
 #[test]
+fn parse_modal_preserves_case() {
+    // Normal/Visual scopes are case-sensitive on the glyph (matches the modal
+    // dispatch token rule). Global stays lowercased.
+    assert_eq!(
+        parse_binding("normal:N").unwrap().1.token,
+        KeyToken::Char("N".into())
+    );
+    assert_eq!(
+        parse_binding("normal:n").unwrap().1.token,
+        KeyToken::Char("n".into())
+    );
+    assert_eq!(
+        parse_binding("visual:Y").unwrap().1.token,
+        KeyToken::Char("Y".into())
+    );
+    assert_eq!(
+        parse_binding("visual:y").unwrap().1.token,
+        KeyToken::Char("y".into())
+    );
+}
+
+#[test]
+fn parse_global_still_lowercases() {
+    // Regression guard: Global single-letter keys are still folded to lowercase.
+    assert_eq!(
+        parse_binding("ctrl+V").unwrap().1.token,
+        KeyToken::Char("v".into())
+    );
+}
+
+#[test]
 fn parse_chord_tail() {
     let key = parse_binding("ctrl+w x").unwrap().1;
     assert_eq!(key.mods, mods(true, false, false, false));
