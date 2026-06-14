@@ -6,12 +6,6 @@
 //! collected as `KeymapError`). Dispatch consults `lookup` first; a miss falls
 //! through to the literal/PTY encoding handlers in `keybindings.rs`.
 //
-// Phase 1 (Tasks 1-3) builds this module's public surface before dispatch is
-// wired to it (Task 4+). Until the dispatch path calls `lookup`/`from_config`,
-// these items are unused by the binary, so allow dead code module-wide; remove
-// this attribute once `keybindings.rs` consumes the keymap.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 
 use winit::keyboard::{Key, NamedKey};
@@ -338,6 +332,7 @@ pub fn action_from_name(name: &str, ctx: DispatchCtx) -> Option<Action> {
 /// Reverse map: the canonical name for an `Action`, for docs / validation
 /// messages. Parameterized + internal actions return `None` (they are not a
 /// single stable user name) except where a fixed name exists.
+#[cfg(test)]
 pub fn name_of_action(action: &Action) -> Option<&'static str> {
     Some(match action {
         Action::Paste => "paste",

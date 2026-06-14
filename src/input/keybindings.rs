@@ -2,6 +2,10 @@ use winit::event::{ElementState, KeyEvent, Modifiers};
 use winit::keyboard::{Key, NamedKey};
 
 use super::mode::InputMode;
+use crate::input::keymap::{
+    BindingKey, DispatchCtx, InputModeKind, KeyMap, ModeClass, Mods, action_from_name,
+    token_from_key,
+};
 
 pub enum Action {
     SendToPty(Vec<u8>),
@@ -71,6 +75,7 @@ pub enum Action {
 }
 
 pub fn handle_key(
+    keymap: &KeyMap,
     event: &KeyEvent,
     modifiers: &Modifiers,
     mode: &InputMode,
@@ -83,6 +88,7 @@ pub fn handle_key(
     }
     let st = modifiers.state();
     handle_key_modified(
+        keymap,
         &event.logical_key,
         st.control_key(),
         st.shift_key(),
@@ -95,10 +101,12 @@ pub fn handle_key(
     )
 }
 
-/// Routes a key by its modifier flags. Split from `handle_key` so the modifier
+/// Routes a key by its modifier flags. The keymap is consulted FIRST; on a miss
+/// we fall through to the encoding/mode handlers. Split from `handle_key` so the
 /// dispatch is unit-testable without constructing winit `Modifiers`/`KeyEvent`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_key_modified(
+    keymap: &KeyMap,
     key: &Key,
     ctrl: bool,
     shift: bool,
@@ -109,11 +117,33 @@ pub(crate) fn handle_key_modified(
     grid_rows: usize,
     application_cursor_keys: bool,
 ) -> Action {
-    // macOS Command (⌘) / Linux Super shortcuts take priority. When Super is
-    // held we run the mapped action or swallow the key (Action::None) so a bare
-    // ⌘<key> never leaks to the PTY.
+    let mods = Mods {
+        ctrl,
+        shift,
+        alt,
+        cmd,
+    };
+    if let Some(token) = token_from_key(key, /* lowercase */ true) {
+        let bkey = BindingKey {
+            mods,
+            token,
+            chord_tail: None,
+        };
+        if let Some(name) = keymap.lookup(ModeClass::Global, &bkey) {
+            let ctx = DispatchCtx {
+                grid_rows,
+                mode: InputModeKind::of(mode),
+            };
+            if let Some(action) = action_from_name(name, ctx) {
+                return action;
+            }
+        }
+    }
+
+    // Keymap miss. When ⌘/Super is held, swallow so a bare ⌘<key> never leaks
+    // to the PTY (matches prior behavior). Otherwise fall through to encoding.
     if cmd {
-        return cmd_action(key).unwrap_or(Action::None);
+        return Action::None;
     }
     handle_key_inner(
         key,
@@ -127,11 +157,41 @@ pub(crate) fn handle_key_modified(
     )
 }
 
-pub fn handle_ctrl_w(event: &KeyEvent) -> Action {
+pub fn handle_ctrl_w(keymap: &KeyMap, event: &KeyEvent) -> Action {
     if event.state != ElementState::Pressed {
         return Action::None;
     }
-    ctrl_w_action(&event.logical_key)
+    handle_ctrl_w_keymap(keymap, &event.logical_key)
+}
+
+/// Resolve a `Ctrl+W <tail>` chord against the keymap. The tail token is NOT
+/// lowercased, so `Ctrl+W R` (rotate backward) stays distinct from `Ctrl+W r`.
+pub(crate) fn handle_ctrl_w_keymap(keymap: &KeyMap, key: &Key) -> Action {
+    let tail = match token_from_key(key, /* lowercase */ false) {
+        Some(t) => t,
+        None => return Action::None,
+    };
+    let bkey = BindingKey {
+        mods: Mods {
+            ctrl: true,
+            shift: false,
+            alt: false,
+            cmd: false,
+        },
+        token: crate::input::keymap::KeyToken::Char("w".into()),
+        chord_tail: Some((Mods::default(), tail)),
+    };
+    match keymap.lookup(ModeClass::Global, &bkey) {
+        Some(name) => action_from_name(
+            name,
+            DispatchCtx {
+                grid_rows: 0,
+                mode: InputModeKind::Insert,
+            },
+        )
+        .unwrap_or(Action::None),
+        None => Action::None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -145,9 +205,18 @@ pub(crate) fn handle_key_inner(
     grid_rows: usize,
     application_cursor_keys: bool,
 ) -> Action {
-    if let Some(action) = handle_global_shortcuts(key, ctrl, shift, alt, mode, grid_rows) {
-        return action;
+    // Ctrl+C copies the selection while in Visual mode (else falls through to
+    // raw 0x03 in Insert). Not a Global keymap row because that would also
+    // intercept Ctrl+C in Insert.
+    if ctrl
+        && !shift
+        && !alt
+        && matches!(mode, InputMode::Visual { .. })
+        && matches!(key, Key::Character(s) if s.eq_ignore_ascii_case("c"))
+    {
+        return Action::Copy;
     }
+
     match mode {
         InputMode::Insert => handle_insert(key, ctrl, shift, alt, application_cursor_keys),
         InputMode::Normal => handle_normal(key, grid_rows),
@@ -171,210 +240,6 @@ pub(crate) fn handle_key_inner(
         InputMode::ScreenshotName { .. } => Action::None,
         InputMode::QuitSave => handle_quit_save(key),
         InputMode::Screenshot { .. } => handle_screenshot(key, shift),
-    }
-}
-
-// ── Global shortcut sub-handlers ────────────────────────────────────────────
-
-fn ctrl_shift_char_action(s: &str) -> Option<Action> {
-    match s.to_lowercase().as_str() {
-        "v" => Some(Action::Paste),
-        "w" => Some(Action::CloseTab),
-        "r" => Some(Action::RenameTab),
-        "k" => Some(Action::ClearScrollback),
-        "l" => Some(Action::ToggleLog),
-        "p" => Some(Action::OpenCommandPalette),
-        _ => None,
-    }
-}
-
-fn ctrl_shift_action(key: &Key) -> Option<Action> {
-    match key {
-        Key::Character(s) => ctrl_shift_char_action(s),
-        Key::Named(NamedKey::ArrowUp) => Some(Action::ResizePaneUp),
-        Key::Named(NamedKey::ArrowDown) => Some(Action::ResizePaneDown),
-        Key::Named(NamedKey::ArrowRight) => Some(Action::ResizePaneRight),
-        Key::Named(NamedKey::ArrowLeft) => Some(Action::ResizePaneLeft),
-        Key::Named(NamedKey::PageUp) => Some(Action::MoveTabLeft),
-        Key::Named(NamedKey::PageDown) => Some(Action::MoveTabRight),
-        Key::Named(NamedKey::Home) => Some(Action::ScrollToTop),
-        Key::Named(NamedKey::End) => Some(Action::ScrollToBottom),
-        _ => None,
-    }
-}
-
-// macOS Command (⌘) / Linux Super shortcuts. Mirrors mmterm's Ctrl / Ctrl+Shift
-// bindings so the platform-standard shortcuts work (⌘V paste, ⌘C copy, ⌘T new
-// tab, ⌘1..9 select tab, …). Returns None for unmapped keys.
-fn cmd_char_action(s: &str) -> Option<Action> {
-    if let Some(d) = s.chars().next().and_then(|c| c.to_digit(10))
-        && d >= 1
-    {
-        return Some(Action::GoToTab((d - 1) as usize));
-    }
-    match s.to_lowercase().as_str() {
-        "v" => Some(Action::Paste),
-        "c" => Some(Action::Copy),
-        "n" | "t" => Some(Action::NewTab),
-        "w" => Some(Action::CloseTab),
-        "q" => Some(Action::Quit),
-        "," => Some(Action::OpenConfig),
-        "f" => Some(Action::SearchOpen),
-        "k" => Some(Action::ClearScrollback),
-        "+" => Some(Action::IncreaseFontSize),
-        "-" => Some(Action::DecreaseFontSize),
-        // ⌘= and ⌘0 both reset the font size to the configured default.
-        "=" | "0" => Some(Action::ResetFontSize),
-        _ => None,
-    }
-}
-
-fn cmd_action(key: &Key) -> Option<Action> {
-    match key {
-        Key::Character(s) => cmd_char_action(s),
-        _ => None,
-    }
-}
-
-fn ctrl_char_key_action(s: &str) -> Option<Action> {
-    match s.to_lowercase().as_str() {
-        "q" => Some(Action::Quit),
-        "," => Some(Action::OpenConfig),
-        "t" => Some(Action::NewTab),
-        "b" => Some(Action::TogglePassthrough),
-        "+" | "=" => Some(Action::IncreaseFontSize),
-        "-" => Some(Action::DecreaseFontSize),
-        "0" => Some(Action::ResetFontSize),
-        _ => None,
-    }
-}
-
-fn ctrl_char_action(key: &Key, alt: bool) -> Option<Action> {
-    match key {
-        Key::Character(s) => ctrl_char_key_action(s),
-        Key::Named(NamedKey::PageUp) => Some(Action::PrevTab),
-        Key::Named(NamedKey::PageDown) => Some(Action::NextTab),
-        Key::Named(NamedKey::Enter) if !alt => Some(Action::ToggleFullscreen),
-        _ => None,
-    }
-}
-
-fn alt_action(key: &Key, ctrl: bool, shift: bool) -> Option<Action> {
-    if !ctrl && *key == Key::Named(NamedKey::Tab) {
-        return Some(Action::None);
-    }
-    if !ctrl
-        && !shift
-        && let Key::Character(s) = key
-        && let Some(d) = s.chars().next().and_then(|c| c.to_digit(10))
-        && d >= 1
-    {
-        return Some(Action::GoToTab((d - 1) as usize));
-    }
-    None
-}
-
-fn visual_mode_init() -> InputMode {
-    InputMode::Visual {
-        start_col: 0,
-        start_row: 0,
-        cur_col: 0,
-        cur_row: 0,
-        anchored: false,
-    }
-}
-
-fn ctrl_dot_next_mode(mode: &InputMode) -> InputMode {
-    match mode {
-        InputMode::Insert => InputMode::Normal,
-        InputMode::Normal => visual_mode_init(),
-        _ => InputMode::Insert,
-    }
-}
-
-fn ctrl_special_char_action(s: &str, mode: &InputMode) -> Option<Action> {
-    if s == "." {
-        return Some(Action::SetMode(ctrl_dot_next_mode(mode)));
-    }
-    if s == "\\" || s == "|" {
-        return Some(Action::SetMode(InputMode::Normal));
-    }
-    None
-}
-
-fn shift_scroll_action(key: &Key, grid_rows: usize) -> Option<Action> {
-    match key {
-        Key::Named(NamedKey::PageUp) => Some(Action::ScrollUp(grid_rows)),
-        Key::Named(NamedKey::PageDown) => Some(Action::ScrollDown(grid_rows)),
-        _ => None,
-    }
-}
-
-fn handle_ctrl_only(key: &Key, alt: bool, mode: &InputMode) -> Option<Action> {
-    if let Key::Character(s) = key {
-        if s.eq_ignore_ascii_case("w") {
-            return Some(Action::CtrlWPrefix);
-        }
-        if let Some(a) = ctrl_special_char_action(s, mode) {
-            return Some(a);
-        }
-        if s.eq_ignore_ascii_case("c") && matches!(mode, InputMode::Visual { .. }) {
-            return Some(Action::Copy);
-        }
-    }
-    ctrl_char_action(key, alt)
-}
-
-fn handle_global_shortcuts(
-    key: &Key,
-    ctrl: bool,
-    shift: bool,
-    alt: bool,
-    mode: &InputMode,
-    grid_rows: usize,
-) -> Option<Action> {
-    if ctrl && shift {
-        return ctrl_shift_action(key);
-    }
-    if ctrl {
-        return handle_ctrl_only(key, alt, mode);
-    }
-    if shift && let Some(a) = shift_scroll_action(key, grid_rows) {
-        return Some(a);
-    }
-    if alt {
-        return alt_action(key, false, shift);
-    }
-    None
-}
-
-pub(crate) fn ctrl_w_action(key: &Key) -> Action {
-    match key {
-        Key::Character(s) => {
-            if s.as_str() == "R" {
-                return Action::RotatePanesBackward;
-            }
-            match s.to_lowercase().as_str() {
-                "v" => Action::SplitH,
-                "s" => Action::SplitV,
-                "a" => Action::AutoSplit,
-                "h" => Action::FocusLeft,
-                "l" => Action::FocusRight,
-                "k" => Action::FocusUp,
-                "j" => Action::FocusDown,
-                "w" => Action::FocusNext,
-                "q" => Action::ClosePane,
-                "z" => Action::ZoomPane,
-                "r" => Action::RotatePanesForward,
-                "p" => Action::ScreenshotOpen,
-                _ => Action::None,
-            }
-        }
-        Key::Named(NamedKey::ArrowLeft) => Action::FocusLeft,
-        Key::Named(NamedKey::ArrowRight) => Action::FocusRight,
-        Key::Named(NamedKey::ArrowUp) => Action::FocusUp,
-        Key::Named(NamedKey::ArrowDown) => Action::FocusDown,
-        _ => Action::None,
     }
 }
 
@@ -493,6 +358,16 @@ fn handle_insert(
         Key::Named(NamedKey::F12) => Action::SendToPty(b"\x1b[24~".to_vec()),
         Key::Character(s) => Action::SendToPty(s.as_bytes().to_vec()),
         _ => Action::None,
+    }
+}
+
+fn visual_mode_init() -> InputMode {
+    InputMode::Visual {
+        start_col: 0,
+        start_row: 0,
+        cur_col: 0,
+        cur_row: 0,
+        anchored: false,
     }
 }
 
