@@ -759,6 +759,67 @@ fn from_config_bare_char_in_normal_scope_allowed() {
 }
 
 #[test]
+fn from_config_normal_override_replaces_row() {
+    // Rebind normal:i (default enter_insert_mode) to scroll_to_top.
+    let (km, errs) = KeyMap::from_config(&kbc(&[("normal:i", "scroll_to_top")]));
+    assert!(errs.is_empty());
+    assert_eq!(
+        km.lookup(ModeClass::Normal, &modal_key("i")),
+        Some("scroll_to_top")
+    );
+}
+
+#[test]
+fn from_config_visual_override_replaces_row() {
+    let (km, errs) = KeyMap::from_config(&kbc(&[("visual:w", "copy")]));
+    assert!(errs.is_empty());
+    assert_eq!(km.lookup(ModeClass::Visual, &modal_key("w")), Some("copy"));
+}
+
+#[test]
+fn from_config_normal_none_removes_row() {
+    let (km, errs) = KeyMap::from_config(&kbc(&[("normal:n", "none")]));
+    assert!(errs.is_empty());
+    assert_eq!(km.lookup(ModeClass::Normal, &modal_key("n")), None);
+    // Capital N (search_prev) is a DIFFERENT row and remains.
+    assert_eq!(
+        km.lookup(ModeClass::Normal, &modal_key("N")),
+        Some("search_prev")
+    );
+}
+
+#[test]
+fn from_config_modal_adds_new_bare_char_row() {
+    // A bare char not in defaults is permitted in modal scope and inserts a row.
+    let (km, errs) = KeyMap::from_config(&kbc(&[("normal:z", "scroll_to_bottom")]));
+    assert!(errs.is_empty());
+    assert_eq!(
+        km.lookup(ModeClass::Normal, &modal_key("z")),
+        Some("scroll_to_bottom")
+    );
+}
+
+#[test]
+fn from_config_modal_uppercase_override_is_case_sensitive() {
+    // visual:Y rebinds the uppercase row only; lowercase y (copy) is untouched.
+    let (km, errs) = KeyMap::from_config(&kbc(&[("visual:Y", "scroll_to_top")]));
+    assert!(errs.is_empty());
+    assert_eq!(
+        km.lookup(ModeClass::Visual, &modal_key("Y")),
+        Some("scroll_to_top")
+    );
+    assert_eq!(km.lookup(ModeClass::Visual, &modal_key("y")), Some("copy"));
+}
+
+#[test]
+fn from_config_normal_unknown_action_is_collected() {
+    let (km, errs) = KeyMap::from_config(&kbc(&[("normal:z", "bogus_action")]));
+    assert_eq!(errs.len(), 1);
+    assert!(matches!(errs[0], KeymapError::UnknownAction { .. }));
+    assert_eq!(km.lookup(ModeClass::Normal, &modal_key("z")), None);
+}
+
+#[test]
 fn from_config_bare_named_key_global_allowed() {
     // A bare Named key (e.g. enter) does not shadow literal char typing.
     let (_km, errs) = KeyMap::from_config(&kbc(&[("enter", "toggle_fullscreen")]));
