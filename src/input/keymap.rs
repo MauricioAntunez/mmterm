@@ -16,6 +16,7 @@ use std::collections::HashMap;
 
 use winit::keyboard::{Key, NamedKey};
 
+use crate::config::KeybindingsConfig;
 use crate::input::keybindings::Action;
 use crate::input::mode::InputMode;
 
@@ -409,6 +410,131 @@ impl KeyMap {
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
+}
+
+impl KeyMap {
+    /// Build the merged keymap: defaults overlaid with the user's config.
+    /// Returns the map + any per-entry errors (skipped entries).
+    pub fn from_config(cfg: &KeybindingsConfig) -> (KeyMap, Vec<KeymapError>) {
+        let mut km = default_keymap();
+        let mut errors = Vec::new();
+
+        for (raw, action) in &cfg.0 {
+            let (scope, key) = match parse_binding(raw) {
+                Ok(v) => v,
+                Err(reason) => {
+                    errors.push(KeymapError::Parse {
+                        raw: raw.clone(),
+                        reason,
+                    });
+                    continue;
+                }
+            };
+
+            // "none" disables a default → remove the entry.
+            if action == "none" {
+                km.map.remove(&(scope, key));
+                continue;
+            }
+
+            // Shadows-input guard: bare unmodified single-char in Global scope.
+            if scope == ModeClass::Global
+                && key.mods == Mods::default()
+                && key.chord_tail.is_none()
+                && matches!(key.token, KeyToken::Char(_))
+            {
+                errors.push(KeymapError::ShadowsInput { raw: raw.clone() });
+                continue;
+            }
+
+            // Validate the action name against the registry. Use a probe ctx;
+            // names that depend on ctx still resolve to Some(_) here.
+            let probe = DispatchCtx {
+                grid_rows: 1,
+                mode: InputModeKind::Insert,
+            };
+            if action_from_name(action, probe).is_none() {
+                errors.push(KeymapError::UnknownAction {
+                    raw: raw.clone(),
+                    name: action.clone(),
+                });
+                continue;
+            }
+
+            // The validator guaranteed `action_from_name` returned `Some`, so the
+            // name is one of the known registry names and `intern_known_name`
+            // resolves it to a `&'static str` (kept in sync with the registry).
+            let static_name = intern_known_name(action)
+                .expect("validated name must be in NAMES — keep intern_known_name in sync");
+            km.insert(scope, key, static_name);
+        }
+
+        (km, errors)
+    }
+}
+
+/// Intern a validated action name to `&'static str`. Covers every name accepted
+/// by `action_from_name`, including the parameterized ones that `name_of_action`
+/// cannot reverse. Keep in sync with `action_from_name`.
+fn intern_known_name(name: &str) -> Option<&'static str> {
+    const NAMES: &[&str] = &[
+        "paste",
+        "copy",
+        "new_tab",
+        "close_tab",
+        "next_tab",
+        "prev_tab",
+        "move_tab_left",
+        "move_tab_right",
+        "rename_tab",
+        "go_to_tab_1",
+        "go_to_tab_2",
+        "go_to_tab_3",
+        "go_to_tab_4",
+        "go_to_tab_5",
+        "go_to_tab_6",
+        "go_to_tab_7",
+        "go_to_tab_8",
+        "go_to_tab_9",
+        "split_horizontal",
+        "split_vertical",
+        "auto_split",
+        "close_pane",
+        "focus_left",
+        "focus_right",
+        "focus_up",
+        "focus_down",
+        "focus_next",
+        "zoom_pane",
+        "rotate_panes_forward",
+        "rotate_panes_backward",
+        "resize_pane_right",
+        "resize_pane_left",
+        "resize_pane_down",
+        "resize_pane_up",
+        "scroll_page_up",
+        "scroll_page_down",
+        "scroll_to_top",
+        "scroll_to_bottom",
+        "clear_scrollback",
+        "search_open",
+        "search_next",
+        "search_prev",
+        "increase_font_size",
+        "decrease_font_size",
+        "reset_font_size",
+        "open_config",
+        "open_command_palette",
+        "toggle_fullscreen",
+        "toggle_log",
+        "toggle_passthrough",
+        "screenshot_open",
+        "quit",
+        "cycle_mode",
+        "enter_normal_mode",
+        "ctrl_w_prefix",
+    ];
+    NAMES.iter().copied().find(|&n| n == name)
 }
 
 fn ch(c: &str) -> KeyToken {

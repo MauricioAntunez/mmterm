@@ -368,3 +368,122 @@ fn token_from_key_unmapped_returns_none() {
     let dead = winit::keyboard::Key::Dead(None);
     assert_eq!(token_from_key(&dead, true), None);
 }
+
+// ── from_config overlay + validation ──────────────────────────────────────────
+
+use crate::config::KeybindingsConfig;
+use std::collections::BTreeMap;
+
+fn kbc(pairs: &[(&str, &str)]) -> KeybindingsConfig {
+    let mut m = BTreeMap::new();
+    for (k, v) in pairs {
+        m.insert((*k).to_string(), (*v).to_string());
+    }
+    KeybindingsConfig(m)
+}
+
+#[test]
+fn from_config_empty_equals_defaults() {
+    let (km, errs) = KeyMap::from_config(&kbc(&[]));
+    assert!(errs.is_empty());
+    assert_eq!(km.len(), default_keymap().len());
+}
+
+#[test]
+fn from_config_adds_new_binding() {
+    let (km, errs) = KeyMap::from_config(&kbc(&[("ctrl+e", "new_tab")]));
+    assert!(errs.is_empty());
+    let key = BindingKey {
+        mods: mods(true, false, false, false),
+        token: tok("e"),
+        chord_tail: None,
+    };
+    assert_eq!(km.lookup(ModeClass::Global, &key), Some("new_tab"));
+}
+
+#[test]
+fn from_config_override_replaces_default() {
+    // Rebind cmd+v (default paste) to copy.
+    let (km, errs) = KeyMap::from_config(&kbc(&[("cmd+v", "copy")]));
+    assert!(errs.is_empty());
+    let key = BindingKey {
+        mods: mods(false, false, false, true),
+        token: tok("v"),
+        chord_tail: None,
+    };
+    assert_eq!(km.lookup(ModeClass::Global, &key), Some("copy"));
+}
+
+#[test]
+fn from_config_none_removes_default() {
+    let (km, errs) = KeyMap::from_config(&kbc(&[("cmd+k", "none")]));
+    assert!(errs.is_empty());
+    let key = BindingKey {
+        mods: mods(false, false, false, true),
+        token: tok("k"),
+        chord_tail: None,
+    };
+    assert_eq!(km.lookup(ModeClass::Global, &key), None);
+}
+
+#[test]
+fn from_config_chord_override() {
+    // Rebind the ctrl+w x slot (unused by default) to close_pane.
+    let (km, errs) = KeyMap::from_config(&kbc(&[("ctrl+w x", "close_pane")]));
+    assert!(errs.is_empty());
+    let key = BindingKey {
+        mods: mods(true, false, false, false),
+        token: tok("w"),
+        chord_tail: Some((mods(false, false, false, false), tok("x"))),
+    };
+    assert_eq!(km.lookup(ModeClass::Global, &key), Some("close_pane"));
+}
+
+#[test]
+fn from_config_parse_error_is_collected_and_skipped() {
+    let (km, errs) = KeyMap::from_config(&kbc(&[("ctrl+", "new_tab")]));
+    assert_eq!(errs.len(), 1);
+    assert!(matches!(errs[0], KeymapError::Parse { .. }));
+    // defaults untouched.
+    assert_eq!(km.len(), default_keymap().len());
+}
+
+#[test]
+fn from_config_unknown_action_collected_and_skipped() {
+    let (km, errs) = KeyMap::from_config(&kbc(&[("ctrl+e", "bogus_action")]));
+    assert_eq!(errs.len(), 1);
+    assert!(matches!(errs[0], KeymapError::UnknownAction { .. }));
+    let key = BindingKey {
+        mods: mods(true, false, false, false),
+        token: tok("e"),
+        chord_tail: None,
+    };
+    assert_eq!(km.lookup(ModeClass::Global, &key), None);
+}
+
+#[test]
+fn from_config_bare_char_global_is_shadows_input() {
+    let (km, errs) = KeyMap::from_config(&kbc(&[("e", "new_tab")]));
+    assert_eq!(errs.len(), 1);
+    assert!(matches!(errs[0], KeymapError::ShadowsInput { .. }));
+    let key = BindingKey {
+        mods: mods(false, false, false, false),
+        token: tok("e"),
+        chord_tail: None,
+    };
+    assert_eq!(km.lookup(ModeClass::Global, &key), None);
+}
+
+#[test]
+fn from_config_bare_char_in_normal_scope_allowed() {
+    // normal: scope permits bare chars (no literal text in Normal mode).
+    let (_km, errs) = KeyMap::from_config(&kbc(&[("normal:g", "scroll_to_top")]));
+    assert!(errs.is_empty());
+}
+
+#[test]
+fn from_config_bare_named_key_global_allowed() {
+    // A bare Named key (e.g. enter) does not shadow literal char typing.
+    let (_km, errs) = KeyMap::from_config(&kbc(&[("enter", "toggle_fullscreen")]));
+    assert!(errs.is_empty());
+}
