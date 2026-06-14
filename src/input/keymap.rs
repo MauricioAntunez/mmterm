@@ -727,6 +727,60 @@ pub fn default_keymap() -> KeyMap {
         chord(nk(NamedKey::ArrowDown), "focus_down");
     }
 
+    // ── Normal-mode discrete rows (handle_normal) ────────────────────────────
+    // Bare, modifier-agnostic, case-preserved glyph tokens. Cursor movement and
+    // Escape stay hardcoded in keybindings.rs (NOT rows).
+    {
+        let no_mods = Mods::default();
+        let mut n = |t: KeyToken, name: &'static str| {
+            km.insert(
+                ModeClass::Normal,
+                BindingKey {
+                    mods: no_mods,
+                    token: t,
+                    chord_tail: None,
+                },
+                name,
+            )
+        };
+        n(ch("i"), "enter_insert_mode");
+        n(ch("v"), "enter_visual_mode");
+        n(ch("q"), "close_pane");
+        n(ch("/"), "search_open");
+        n(ch("n"), "search_next");
+        n(ch("N"), "search_prev"); // uppercase, case-preserved
+        n(ch("j"), "scroll_line_down");
+        n(ch("k"), "scroll_line_up");
+        n(nk(NamedKey::PageUp), "scroll_page_up");
+        n(nk(NamedKey::PageDown), "scroll_page_down");
+    }
+
+    // ── Visual-mode discrete rows (visual_char_action) ───────────────────────
+    // Movement keys (h l k j 0 $ g G, arrows, Home/End, PageUp/PageDown) stay
+    // hardcoded in handle_visual; only the discrete actions are rows.
+    {
+        let no_mods = Mods::default();
+        let mut v = |t: KeyToken, name: &'static str| {
+            km.insert(
+                ModeClass::Visual,
+                BindingKey {
+                    mods: no_mods,
+                    token: t,
+                    chord_tail: None,
+                },
+                name,
+            )
+        };
+        v(ch("w"), "visual_word_forward");
+        v(ch("b"), "visual_word_backward");
+        v(ch("e"), "visual_word_end");
+        v(ch("y"), "copy");
+        v(ch("Y"), "visual_yank_line"); // uppercase, case-preserved
+        v(ch("o"), "visual_swap_anchor");
+        v(ch("v"), "visual_anchor");
+        v(ch("q"), "enter_insert_mode");
+    }
+
     km
 }
 

@@ -513,6 +513,104 @@ fn lookup_miss_returns_none() {
     assert_eq!(km.lookup(ModeClass::Global, &key), None);
 }
 
+// ── Normal / Visual default rows ──────────────────────────────────────────────
+
+fn modal_key(c: &str) -> BindingKey {
+    BindingKey {
+        mods: Mods::default(),
+        token: tok(c),
+        chord_tail: None,
+    }
+}
+
+fn named_modal_key(n: NamedKey) -> BindingKey {
+    BindingKey {
+        mods: Mods::default(),
+        token: KeyToken::Named(n),
+        chord_tail: None,
+    }
+}
+
+#[test]
+fn default_normal_rows_match_handlers() {
+    let km = default_keymap();
+    let l = |c: &str| km.lookup(ModeClass::Normal, &modal_key(c));
+    assert_eq!(l("i"), Some("enter_insert_mode"));
+    assert_eq!(l("v"), Some("enter_visual_mode"));
+    assert_eq!(l("q"), Some("close_pane"));
+    assert_eq!(l("/"), Some("search_open"));
+    assert_eq!(l("n"), Some("search_next"));
+    assert_eq!(l("N"), Some("search_prev"));
+    assert_eq!(l("j"), Some("scroll_line_down"));
+    assert_eq!(l("k"), Some("scroll_line_up"));
+    assert_eq!(
+        km.lookup(ModeClass::Normal, &named_modal_key(NamedKey::PageUp)),
+        Some("scroll_page_up")
+    );
+    assert_eq!(
+        km.lookup(ModeClass::Normal, &named_modal_key(NamedKey::PageDown)),
+        Some("scroll_page_down")
+    );
+}
+
+#[test]
+fn default_normal_n_and_capital_n_are_distinct() {
+    let km = default_keymap();
+    assert_eq!(
+        km.lookup(ModeClass::Normal, &modal_key("n")),
+        Some("search_next")
+    );
+    assert_eq!(
+        km.lookup(ModeClass::Normal, &modal_key("N")),
+        Some("search_prev")
+    );
+}
+
+#[test]
+fn default_visual_rows_match_handlers() {
+    let km = default_keymap();
+    let l = |c: &str| km.lookup(ModeClass::Visual, &modal_key(c));
+    assert_eq!(l("w"), Some("visual_word_forward"));
+    assert_eq!(l("b"), Some("visual_word_backward"));
+    assert_eq!(l("e"), Some("visual_word_end"));
+    assert_eq!(l("y"), Some("copy"));
+    assert_eq!(l("Y"), Some("visual_yank_line"));
+    assert_eq!(l("o"), Some("visual_swap_anchor"));
+    assert_eq!(l("v"), Some("visual_anchor"));
+    assert_eq!(l("q"), Some("enter_insert_mode"));
+}
+
+#[test]
+fn default_visual_y_and_capital_y_are_distinct() {
+    let km = default_keymap();
+    assert_eq!(km.lookup(ModeClass::Visual, &modal_key("y")), Some("copy"));
+    assert_eq!(
+        km.lookup(ModeClass::Visual, &modal_key("Y")),
+        Some("visual_yank_line")
+    );
+}
+
+#[test]
+fn default_visual_movement_keys_are_not_rows() {
+    // Cursor movement stays hardcoded in handle_visual — NOT a table row.
+    let km = default_keymap();
+    for c in ["h", "l", "k", "j", "0", "$", "g", "G"] {
+        assert_eq!(
+            km.lookup(ModeClass::Visual, &modal_key(c)),
+            None,
+            "{c} must not be a Visual table row (movement is hardcoded)"
+        );
+    }
+}
+
+#[test]
+fn default_modal_rows_absent_from_global_scope() {
+    // Modal rows live under their own ModeClass; Global lookup must miss them.
+    let km = default_keymap();
+    assert_eq!(km.lookup(ModeClass::Global, &modal_key("i")), None);
+    assert_eq!(km.lookup(ModeClass::Global, &modal_key("w")), None);
+}
+
 // ── token_from_key (runtime winit Key → KeyToken) ─────────────────────────────
 
 #[test]
