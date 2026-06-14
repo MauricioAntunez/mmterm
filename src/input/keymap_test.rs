@@ -216,6 +216,81 @@ fn registry_none_keyword_is_not_an_action() {
 }
 
 #[test]
+fn every_registry_name_is_interned() {
+    // Drift guard: `from_config` validates a binding's action via `action_from_name`
+    // then `intern_known_name(...).expect(...)` to obtain a &'static str. If a name is
+    // added to `action_from_name` but not to `intern_known_name`'s NAMES list, startup
+    // panics. Assert both agree for every canonical registry name.
+    let names = [
+        "paste",
+        "copy",
+        "new_tab",
+        "close_tab",
+        "next_tab",
+        "prev_tab",
+        "move_tab_left",
+        "move_tab_right",
+        "rename_tab",
+        "go_to_tab_1",
+        "go_to_tab_2",
+        "go_to_tab_3",
+        "go_to_tab_4",
+        "go_to_tab_5",
+        "go_to_tab_6",
+        "go_to_tab_7",
+        "go_to_tab_8",
+        "go_to_tab_9",
+        "split_horizontal",
+        "split_vertical",
+        "auto_split",
+        "close_pane",
+        "focus_left",
+        "focus_right",
+        "focus_up",
+        "focus_down",
+        "focus_next",
+        "zoom_pane",
+        "rotate_panes_forward",
+        "rotate_panes_backward",
+        "resize_pane_right",
+        "resize_pane_left",
+        "resize_pane_down",
+        "resize_pane_up",
+        "scroll_page_up",
+        "scroll_page_down",
+        "scroll_to_top",
+        "scroll_to_bottom",
+        "clear_scrollback",
+        "search_open",
+        "search_next",
+        "search_prev",
+        "increase_font_size",
+        "decrease_font_size",
+        "reset_font_size",
+        "open_config",
+        "open_command_palette",
+        "toggle_fullscreen",
+        "toggle_log",
+        "toggle_passthrough",
+        "screenshot_open",
+        "quit",
+        "cycle_mode",
+        "enter_normal_mode",
+        "ctrl_w_prefix",
+    ];
+    for n in names {
+        assert!(
+            action_from_name(n, ctx(24, InputMode::Insert)).is_some(),
+            "registry missing {n}"
+        );
+        assert!(
+            intern_known_name(n).is_some(),
+            "intern_known_name missing {n}"
+        );
+    }
+}
+
+#[test]
 fn name_of_action_roundtrips_paste() {
     assert_eq!(name_of_action(&Action::Paste), Some("paste"));
 }

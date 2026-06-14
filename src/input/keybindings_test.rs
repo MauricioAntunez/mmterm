@@ -383,6 +383,19 @@ fn dispatch_ctrl_w_chord_override() {
 }
 
 #[test]
+fn dispatch_ctrl_w_chord_uppercase_v_still_splits() {
+    // Ctrl+W V (shift held) must behave like Ctrl+W v (case-insensitive tail, except R).
+    let a = handle_ctrl_w_keymap(&km(), &char_key("V"));
+    assert!(matches!(a, Action::SplitH));
+}
+
+#[test]
+fn dispatch_ctrl_w_chord_uppercase_s_splits_vertical() {
+    let a = handle_ctrl_w_keymap(&km(), &char_key("S"));
+    assert!(matches!(a, Action::SplitV));
+}
+
+#[test]
 fn dispatch_ctrl_w_chord_unknown_returns_none() {
     let a = handle_ctrl_w_keymap(&km(), &char_key("y"));
     assert!(matches!(a, Action::None));

@@ -164,14 +164,13 @@ pub fn handle_ctrl_w(keymap: &KeyMap, event: &KeyEvent) -> Action {
     handle_ctrl_w_keymap(keymap, &event.logical_key)
 }
 
-/// Resolve a `Ctrl+W <tail>` chord against the keymap. The tail token is NOT
-/// lowercased, so `Ctrl+W R` (rotate backward) stays distinct from `Ctrl+W r`.
+/// Resolve a `Ctrl+W <tail>` chord against the keymap. Chord tails are stored
+/// case-preserved, but only `R` differs from `r` (rotate backward vs forward).
+/// We look up the case-preserved tail FIRST so `R` resolves to its own binding,
+/// then retry with the lowercased tail so shifted tails like `Ctrl+W V` / `S`
+/// still match the lowercase `v` / `s` chords.
 pub(crate) fn handle_ctrl_w_keymap(keymap: &KeyMap, key: &Key) -> Action {
-    let tail = match token_from_key(key, /* lowercase */ false) {
-        Some(t) => t,
-        None => return Action::None,
-    };
-    let bkey = BindingKey {
+    let make_bkey = |tail| BindingKey {
         mods: Mods {
             ctrl: true,
             shift: false,
@@ -181,7 +180,15 @@ pub(crate) fn handle_ctrl_w_keymap(keymap: &KeyMap, key: &Key) -> Action {
         token: crate::input::keymap::KeyToken::Char("w".into()),
         chord_tail: Some((Mods::default(), tail)),
     };
-    match keymap.lookup(ModeClass::Global, &bkey) {
+
+    let name = token_from_key(key, /* lowercase */ false)
+        .and_then(|tail| keymap.lookup(ModeClass::Global, &make_bkey(tail)))
+        .or_else(|| {
+            token_from_key(key, /* lowercase */ true)
+                .and_then(|tail| keymap.lookup(ModeClass::Global, &make_bkey(tail)))
+        });
+
+    match name {
         Some(name) => action_from_name(
             name,
             DispatchCtx {
