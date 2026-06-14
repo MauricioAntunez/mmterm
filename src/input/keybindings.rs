@@ -146,6 +146,7 @@ pub(crate) fn handle_key_modified(
         return Action::None;
     }
     handle_key_inner(
+        keymap,
         key,
         ctrl,
         shift,
@@ -203,6 +204,7 @@ pub(crate) fn handle_ctrl_w_keymap(keymap: &KeyMap, key: &Key) -> Action {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_key_inner(
+    keymap: &KeyMap,
     key: &Key,
     ctrl: bool,
     shift: bool,
@@ -232,7 +234,7 @@ pub(crate) fn handle_key_inner(
 
     match mode {
         InputMode::Insert => handle_insert(key, ctrl, shift, alt, application_cursor_keys),
-        InputMode::Normal => handle_normal(key, grid_rows),
+        InputMode::Normal => handle_normal(keymap, key, grid_rows),
         InputMode::Visual {
             start_col,
             start_row,
@@ -240,6 +242,7 @@ pub(crate) fn handle_key_inner(
             cur_row,
             anchored,
         } => handle_visual(
+            keymap,
             key,
             (*start_col, *start_row),
             (*cur_col, *cur_row),
@@ -374,32 +377,28 @@ fn handle_insert(
     }
 }
 
-fn visual_mode_init() -> InputMode {
-    InputMode::Visual {
-        start_col: 0,
-        start_row: 0,
-        cur_col: 0,
-        cur_row: 0,
-        anchored: false,
+fn handle_normal(keymap: &KeyMap, key: &Key, grid_rows: usize) -> Action {
+    // Modal lookup: modifier-agnostic, case-preserved glyph (matches pre-keymap
+    // behavior). A hit resolves the bound action; a miss falls to the kept
+    // grammar (Escape only).
+    if let Some(token) = token_from_key(key, /* lowercase */ false) {
+        let bkey = BindingKey {
+            mods: Mods::default(),
+            token,
+            chord_tail: None,
+        };
+        if let Some(name) = keymap.lookup(ModeClass::Normal, &bkey) {
+            let ctx = DispatchCtx {
+                grid_rows,
+                mode: InputModeKind::Normal,
+            };
+            if let Some(action) = action_from_name(name, ctx) {
+                return action;
+            }
+        }
     }
-}
-
-fn handle_normal(key: &Key, grid_rows: usize) -> Action {
     match key {
         Key::Named(NamedKey::Escape) => Action::SetMode(InputMode::Insert),
-        Key::Named(NamedKey::PageUp) => Action::ScrollUp(grid_rows),
-        Key::Named(NamedKey::PageDown) => Action::ScrollDown(grid_rows),
-        Key::Character(s) => match s.as_str() {
-            "i" => Action::SetMode(InputMode::Insert),
-            "v" => Action::SetMode(visual_mode_init()),
-            "q" => Action::ClosePane,
-            "/" => Action::SearchOpen,
-            "n" => Action::SearchNext,
-            "N" => Action::SearchPrev,
-            "j" => Action::ScrollDown(3),
-            "k" => Action::ScrollUp(3),
-            _ => Action::None,
-        },
         _ => Action::None,
     }
 }
@@ -446,19 +445,13 @@ fn visual_char_action(
         "$" => move_to(cols, cur_row),
         "g" => move_to(cur_col, 0),
         "G" => move_to(cur_col, rows),
-        "w" => Action::VisualWordForward,
-        "b" => Action::VisualWordBackward,
-        "e" => Action::VisualWordEnd,
-        "y" => Action::Copy,
-        "Y" => Action::VisualYankLine,
-        "o" => Action::VisualSwapAnchor,
-        "v" => Action::VisualAnchor,
-        "q" => Action::SetMode(InputMode::Insert),
         _ => Action::None,
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_visual(
+    keymap: &KeyMap,
     key: &Key,
     (start_col, start_row): (usize, usize),
     (cur_col, cur_row): (usize, usize),
@@ -466,6 +459,25 @@ fn handle_visual(
     cols: usize,
     rows: usize,
 ) -> Action {
+    // Modal lookup first (discrete actions: w b e y Y o v q). Movement and
+    // Escape stay hardcoded below.
+    if let Some(token) = token_from_key(key, /* lowercase */ false) {
+        let bkey = BindingKey {
+            mods: Mods::default(),
+            token,
+            chord_tail: None,
+        };
+        if let Some(name) = keymap.lookup(ModeClass::Visual, &bkey) {
+            let ctx = DispatchCtx {
+                grid_rows: rows,
+                mode: InputModeKind::Visual,
+            };
+            if let Some(action) = action_from_name(name, ctx) {
+                return action;
+            }
+        }
+    }
+
     let rows = rows.saturating_sub(1);
     let cols = cols.saturating_sub(1);
 

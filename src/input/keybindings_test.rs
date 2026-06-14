@@ -406,6 +406,7 @@ fn dispatch_ctrl_w_chord_unknown_returns_none() {
 #[test]
 fn insert_escape_sends_esc_byte() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Escape),
         false,
         false,
@@ -421,6 +422,7 @@ fn insert_escape_sends_esc_byte() {
 #[test]
 fn insert_enter_sends_cr() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Enter),
         false,
         false,
@@ -436,6 +438,7 @@ fn insert_enter_sends_cr() {
 #[test]
 fn insert_backspace_sends_del() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Backspace),
         false,
         false,
@@ -451,6 +454,7 @@ fn insert_backspace_sends_del() {
 #[test]
 fn insert_tab_sends_tab_byte() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Tab),
         false,
         false,
@@ -466,6 +470,7 @@ fn insert_tab_sends_tab_byte() {
 #[test]
 fn insert_shift_tab_sends_backtab_sequence() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Tab),
         false,
         true,
@@ -481,6 +486,7 @@ fn insert_shift_tab_sends_backtab_sequence() {
 #[test]
 fn normal_shift_tab_returns_none() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Tab),
         false,
         true,
@@ -496,6 +502,7 @@ fn normal_shift_tab_returns_none() {
 #[test]
 fn visual_shift_tab_returns_none() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Tab),
         false,
         true,
@@ -513,6 +520,7 @@ fn ctrl_shift_tab_sends_backtab_sequence() {
     // ctrl block in handle_insert only intercepts Character keys, so
     // Ctrl+Shift+Tab falls through to the `Tab if shift` arm → same as Shift+Tab.
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Tab),
         true,
         true,
@@ -528,6 +536,7 @@ fn ctrl_shift_tab_sends_backtab_sequence() {
 #[test]
 fn insert_space_sends_space() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Space),
         false,
         false,
@@ -543,6 +552,7 @@ fn insert_space_sends_space() {
 #[test]
 fn insert_char_sends_utf8_bytes() {
     let a = handle_key_inner(
+        &km(),
         &char_key("a"),
         false,
         false,
@@ -558,6 +568,7 @@ fn insert_char_sends_utf8_bytes() {
 #[test]
 fn insert_arrow_up_normal_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowUp),
         false,
         false,
@@ -573,6 +584,7 @@ fn insert_arrow_up_normal_cursor() {
 #[test]
 fn insert_arrow_up_application_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowUp),
         false,
         false,
@@ -588,6 +600,7 @@ fn insert_arrow_up_application_cursor() {
 #[test]
 fn insert_arrow_down_normal_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowDown),
         false,
         false,
@@ -603,6 +616,7 @@ fn insert_arrow_down_normal_cursor() {
 #[test]
 fn insert_arrow_right_normal_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowRight),
         false,
         false,
@@ -618,6 +632,7 @@ fn insert_arrow_right_normal_cursor() {
 #[test]
 fn insert_arrow_left_normal_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowLeft),
         false,
         false,
@@ -633,6 +648,7 @@ fn insert_arrow_left_normal_cursor() {
 #[test]
 fn insert_home_normal() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Home),
         false,
         false,
@@ -648,6 +664,7 @@ fn insert_home_normal() {
 #[test]
 fn insert_home_application_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Home),
         false,
         false,
@@ -663,6 +680,7 @@ fn insert_home_application_cursor() {
 #[test]
 fn insert_end_normal() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::End),
         false,
         false,
@@ -678,6 +696,7 @@ fn insert_end_normal() {
 #[test]
 fn insert_page_up_sends_csi_5() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::PageUp),
         false,
         false,
@@ -693,6 +712,7 @@ fn insert_page_up_sends_csi_5() {
 #[test]
 fn insert_page_down_sends_csi_6() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::PageDown),
         false,
         false,
@@ -708,6 +728,7 @@ fn insert_page_down_sends_csi_6() {
 #[test]
 fn insert_delete_sends_csi_3() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Delete),
         false,
         false,
@@ -729,7 +750,17 @@ fn insert_f1_through_f4() {
         (NamedKey::F4, b"\x1bOS"),
     ];
     for (k, expected) in cases {
-        let a = handle_key_inner(&named(*k), false, false, false, &insert(), 80, 24, false);
+        let a = handle_key_inner(
+            &km(),
+            &named(*k),
+            false,
+            false,
+            false,
+            &insert(),
+            80,
+            24,
+            false,
+        );
         assert!(
             matches!(a, Action::SendToPty(ref v) if v.as_slice() == *expected),
             "F key mismatch"
@@ -750,7 +781,17 @@ fn insert_f5_through_f12() {
         (NamedKey::F12, b"\x1b[24~"),
     ];
     for (k, expected) in cases {
-        let a = handle_key_inner(&named(*k), false, false, false, &insert(), 80, 24, false);
+        let a = handle_key_inner(
+            &km(),
+            &named(*k),
+            false,
+            false,
+            false,
+            &insert(),
+            80,
+            24,
+            false,
+        );
         assert!(
             matches!(a, Action::SendToPty(ref v) if v.as_slice() == *expected),
             "F key mismatch"
@@ -763,6 +804,7 @@ fn insert_f5_through_f12() {
 #[test]
 fn normal_escape_enters_insert() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Escape),
         false,
         false,
@@ -778,6 +820,7 @@ fn normal_escape_enters_insert() {
 #[test]
 fn normal_i_enters_insert() {
     let a = handle_key_inner(
+        &km(),
         &char_key("i"),
         false,
         false,
@@ -793,6 +836,7 @@ fn normal_i_enters_insert() {
 #[test]
 fn normal_v_enters_visual() {
     let a = handle_key_inner(
+        &km(),
         &char_key("v"),
         false,
         false,
@@ -808,6 +852,7 @@ fn normal_v_enters_visual() {
 #[test]
 fn normal_q_closes_pane() {
     let a = handle_key_inner(
+        &km(),
         &char_key("q"),
         false,
         false,
@@ -823,6 +868,7 @@ fn normal_q_closes_pane() {
 #[test]
 fn normal_slash_opens_search() {
     let a = handle_key_inner(
+        &km(),
         &char_key("/"),
         false,
         false,
@@ -838,6 +884,7 @@ fn normal_slash_opens_search() {
 #[test]
 fn normal_n_search_next() {
     let a = handle_key_inner(
+        &km(),
         &char_key("n"),
         false,
         false,
@@ -853,6 +900,7 @@ fn normal_n_search_next() {
 #[test]
 fn normal_shift_n_search_prev() {
     let a = handle_key_inner(
+        &km(),
         &char_key("N"),
         false,
         false,
@@ -868,6 +916,7 @@ fn normal_shift_n_search_prev() {
 #[test]
 fn normal_j_scrolls_down_3() {
     let a = handle_key_inner(
+        &km(),
         &char_key("j"),
         false,
         false,
@@ -883,6 +932,7 @@ fn normal_j_scrolls_down_3() {
 #[test]
 fn normal_k_scrolls_up_3() {
     let a = handle_key_inner(
+        &km(),
         &char_key("k"),
         false,
         false,
@@ -898,6 +948,7 @@ fn normal_k_scrolls_up_3() {
 #[test]
 fn normal_page_up_scrolls_full_grid() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::PageUp),
         false,
         false,
@@ -913,6 +964,7 @@ fn normal_page_up_scrolls_full_grid() {
 #[test]
 fn normal_page_down_scrolls_full_grid() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::PageDown),
         false,
         false,
@@ -928,6 +980,7 @@ fn normal_page_down_scrolls_full_grid() {
 #[test]
 fn normal_unknown_key_returns_none() {
     let a = handle_key_inner(
+        &km(),
         &char_key("x"),
         false,
         false,
@@ -965,6 +1018,7 @@ fn vis_col_row(a: Action) -> (usize, usize) {
 fn visual_escape_enters_insert() {
     let mode = visual_at(0, 0, 5, 5);
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Escape),
         false,
         false,
@@ -981,6 +1035,7 @@ fn visual_escape_enters_insert() {
 fn visual_h_moves_left() {
     let mode = visual_at(0, 0, 5, 5);
     let (col, row) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("h"),
         false,
         false,
@@ -998,6 +1053,7 @@ fn visual_h_moves_left() {
 fn visual_l_moves_right() {
     let mode = visual_at(0, 0, 5, 5);
     let (col, row) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("l"),
         false,
         false,
@@ -1015,6 +1071,7 @@ fn visual_l_moves_right() {
 fn visual_k_moves_up() {
     let mode = visual_at(0, 0, 5, 5);
     let (col, row) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("k"),
         false,
         false,
@@ -1032,6 +1089,7 @@ fn visual_k_moves_up() {
 fn visual_j_moves_down() {
     let mode = visual_at(0, 0, 5, 5);
     let (col, row) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("j"),
         false,
         false,
@@ -1049,6 +1107,7 @@ fn visual_j_moves_down() {
 fn visual_zero_jumps_to_col_zero() {
     let mode = visual_at(0, 0, 10, 5);
     let (col, _) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("0"),
         false,
         false,
@@ -1065,6 +1124,7 @@ fn visual_zero_jumps_to_col_zero() {
 fn visual_dollar_jumps_to_last_col() {
     let mode = visual_at(0, 0, 0, 0);
     let (col, _) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("$"),
         false,
         false,
@@ -1081,6 +1141,7 @@ fn visual_dollar_jumps_to_last_col() {
 fn visual_g_jumps_to_row_zero() {
     let mode = visual_at(0, 0, 5, 10);
     let (_, row) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("g"),
         false,
         false,
@@ -1097,6 +1158,7 @@ fn visual_g_jumps_to_row_zero() {
 fn visual_capital_g_jumps_to_last_row() {
     let mode = visual_at(0, 0, 5, 0);
     let (_, row) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("G"),
         false,
         false,
@@ -1113,14 +1175,34 @@ fn visual_capital_g_jumps_to_last_row() {
 fn visual_v_sets_anchor() {
     // 'v' in Visual mode sets the anchor at the current cursor position.
     let mode = visual_at(0, 0, 5, 5);
-    let a = handle_key_inner(&char_key("v"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("v"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::VisualAnchor));
 }
 
 #[test]
 fn visual_q_enters_insert() {
     let mode = visual_at(0, 0, 5, 5);
-    let a = handle_key_inner(&char_key("q"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("q"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::SetMode(InputMode::Insert)));
 }
 
@@ -1128,6 +1210,7 @@ fn visual_q_enters_insert() {
 fn visual_arrow_left_moves_cursor() {
     let mode = visual_at(0, 0, 5, 5);
     let (col, _) = vis_col_row(handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowLeft),
         false,
         false,
@@ -1144,6 +1227,7 @@ fn visual_arrow_left_moves_cursor() {
 fn visual_arrow_right_moves_cursor() {
     let mode = visual_at(0, 0, 5, 5);
     let (col, _) = vis_col_row(handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowRight),
         false,
         false,
@@ -1160,6 +1244,7 @@ fn visual_arrow_right_moves_cursor() {
 fn visual_home_jumps_to_col_zero() {
     let mode = visual_at(0, 0, 10, 5);
     let (col, _) = vis_col_row(handle_key_inner(
+        &km(),
         &named(NamedKey::Home),
         false,
         false,
@@ -1176,6 +1261,7 @@ fn visual_home_jumps_to_col_zero() {
 fn visual_end_jumps_to_last_col() {
     let mode = visual_at(0, 0, 0, 0);
     let (col, _) = vis_col_row(handle_key_inner(
+        &km(),
         &named(NamedKey::End),
         false,
         false,
@@ -1192,6 +1278,7 @@ fn visual_end_jumps_to_last_col() {
 fn visual_h_at_col_zero_clamps() {
     let mode = visual_at(0, 0, 0, 5);
     let (col, _) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("h"),
         false,
         false,
@@ -1208,7 +1295,17 @@ fn visual_h_at_col_zero_clamps() {
 fn visual_k_at_row_zero_scrolls_up() {
     // At row 0, 'k' triggers boundary scroll instead of clamping.
     let mode = visual_at(0, 0, 5, 0);
-    let a = handle_key_inner(&char_key("k"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("k"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::VisualBoundaryUp(1)));
 }
 
@@ -1216,6 +1313,7 @@ fn visual_k_at_row_zero_scrolls_up() {
 fn visual_l_at_last_col_clamps() {
     let mode = visual_at(0, 0, 79, 5);
     let (col, _) = vis_col_row(handle_key_inner(
+        &km(),
         &char_key("l"),
         false,
         false,
@@ -1231,7 +1329,17 @@ fn visual_l_at_last_col_clamps() {
 #[test]
 fn visual_start_coords_preserved_on_move() {
     let mode = visual_at(3, 7, 5, 5);
-    let a = handle_key_inner(&char_key("j"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("j"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     match a {
         Action::SetMode(InputMode::Visual {
             start_col,
@@ -1250,7 +1358,17 @@ fn visual_start_coords_preserved_on_move() {
 #[test]
 fn rename_tab_mode_returns_none() {
     let mode = InputMode::RenameTab { buf: String::new() };
-    let a = handle_key_inner(&char_key("a"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("a"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::None));
 }
 
@@ -1260,7 +1378,17 @@ fn search_mode_returns_none() {
         query: "foo".into(),
         history_pos: None,
     };
-    let a = handle_key_inner(&char_key("a"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("a"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::None));
 }
 
@@ -1269,6 +1397,7 @@ fn search_mode_returns_none() {
 #[test]
 fn insert_arrow_down_application_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowDown),
         false,
         false,
@@ -1284,6 +1413,7 @@ fn insert_arrow_down_application_cursor() {
 #[test]
 fn insert_arrow_right_application_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowRight),
         false,
         false,
@@ -1299,6 +1429,7 @@ fn insert_arrow_right_application_cursor() {
 #[test]
 fn insert_arrow_left_application_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowLeft),
         false,
         false,
@@ -1314,6 +1445,7 @@ fn insert_arrow_left_application_cursor() {
 #[test]
 fn insert_end_application_cursor() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::End),
         false,
         false,
@@ -1332,6 +1464,7 @@ fn insert_end_application_cursor() {
 fn insert_ctrl_char_with_code_1_sends_raw_byte() {
     // '\x01' has code point 1, which falls in the raw 1..=26 branch
     let a = handle_key_inner(
+        &km(),
         &char_key("\x01"),
         true,
         false,
@@ -1347,6 +1480,7 @@ fn insert_ctrl_char_with_code_1_sends_raw_byte() {
 #[test]
 fn insert_ctrl_char_with_code_26_sends_raw_byte() {
     let a = handle_key_inner(
+        &km(),
         &char_key("\x1a"),
         true,
         false,
@@ -1364,6 +1498,7 @@ fn insert_ctrl_char_with_code_26_sends_raw_byte() {
 #[test]
 fn insert_unrecognized_named_key_returns_none() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Alt),
         false,
         false,
@@ -1381,6 +1516,7 @@ fn insert_unrecognized_named_key_returns_none() {
 #[test]
 fn normal_unrecognized_named_key_returns_none() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowLeft),
         false,
         false,
@@ -1399,6 +1535,7 @@ fn normal_unrecognized_named_key_returns_none() {
 fn visual_arrow_up_moves_cursor() {
     let mode = visual_at(0, 0, 5, 5);
     let (col, row) = vis_col_row(handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowUp),
         false,
         false,
@@ -1416,6 +1553,7 @@ fn visual_arrow_up_moves_cursor() {
 fn visual_arrow_down_moves_cursor() {
     let mode = visual_at(0, 0, 5, 5);
     let (col, row) = vis_col_row(handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowDown),
         false,
         false,
@@ -1435,6 +1573,7 @@ fn visual_arrow_down_moves_cursor() {
 fn visual_page_up_scrolls_full_page() {
     let mode = visual_at(0, 0, 5, 10);
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::PageUp),
         false,
         false,
@@ -1451,6 +1590,7 @@ fn visual_page_up_scrolls_full_page() {
 fn visual_page_down_scrolls_full_page() {
     let mode = visual_at(0, 0, 5, 10);
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::PageDown),
         false,
         false,
@@ -1473,6 +1613,7 @@ fn visual_page_up_with_anchored_selection() {
         anchored: true,
     };
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::PageUp),
         false,
         false,
@@ -1495,6 +1636,7 @@ fn visual_page_down_with_anchored_selection() {
         anchored: true,
     };
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::PageDown),
         false,
         false,
@@ -1512,7 +1654,17 @@ fn visual_page_down_with_anchored_selection() {
 #[test]
 fn visual_unknown_char_returns_none() {
     let mode = visual_at(0, 0, 5, 5);
-    let a = handle_key_inner(&char_key("x"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("x"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::None));
 }
 
@@ -1520,6 +1672,7 @@ fn visual_unknown_char_returns_none() {
 fn visual_unrecognized_named_key_returns_none() {
     let mode = visual_at(0, 0, 5, 5);
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Alt),
         false,
         false,
@@ -1536,13 +1689,24 @@ fn visual_unrecognized_named_key_returns_none() {
 
 #[test]
 fn insert_alt_char_sends_esc_prefixed() {
-    let a = handle_key_inner(&char_key("b"), false, false, true, &insert(), 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("b"),
+        false,
+        false,
+        true,
+        &insert(),
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::SendToPty(ref v) if v == &[0x1b, b'b']));
 }
 
 #[test]
 fn insert_alt_enter_sends_esc_cr() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Enter),
         false,
         false,
@@ -1558,6 +1722,7 @@ fn insert_alt_enter_sends_esc_cr() {
 #[test]
 fn insert_plain_tab_still_sends_tab_byte() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Tab),
         false,
         false,
@@ -1573,6 +1738,7 @@ fn insert_plain_tab_still_sends_tab_byte() {
 #[test]
 fn insert_alt_backspace_sends_esc_del() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Backspace),
         false,
         false,
@@ -1590,6 +1756,7 @@ fn insert_alt_arrow_falls_through_to_regular_match() {
     // alt + ArrowLeft hits `_ => None` in the alt match block, then falls
     // through to the regular key match and produces the normal CSI sequence.
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowLeft),
         false,
         false,
@@ -1605,6 +1772,7 @@ fn insert_alt_arrow_falls_through_to_regular_match() {
 #[test]
 fn insert_alt_enter_sends_escape_cr() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Enter),
         false,
         false,
@@ -1620,6 +1788,7 @@ fn insert_alt_enter_sends_escape_cr() {
 #[test]
 fn insert_alt_backspace_sends_escape_del() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Backspace),
         false,
         false,
@@ -1637,6 +1806,7 @@ fn insert_alt_backspace_sends_escape_del() {
 #[test]
 fn alt_enter_in_insert_sends_esc_cr() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Enter),
         false,
         false,
@@ -1652,6 +1822,7 @@ fn alt_enter_in_insert_sends_esc_cr() {
 #[test]
 fn alt_backspace_in_insert_sends_esc_del() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Backspace),
         false,
         false,
@@ -1669,14 +1840,34 @@ fn alt_backspace_in_insert_sends_esc_del() {
 #[test]
 fn visual_o_swaps_anchor() {
     let mode = visual_at(2, 3, 7, 9);
-    let a = handle_key_inner(&char_key("o"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("o"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::VisualSwapAnchor));
 }
 
 #[test]
 fn visual_o_with_zero_anchor_swaps_anchor() {
     let mode = visual_at(0, 0, 10, 5);
-    let a = handle_key_inner(&char_key("o"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("o"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::VisualSwapAnchor));
 }
 
@@ -1684,7 +1875,17 @@ fn visual_o_with_zero_anchor_swaps_anchor() {
 fn visual_j_at_last_row_scrolls_down() {
     // At the last row, 'j' triggers boundary scroll instead of clamping.
     let mode = visual_at(0, 0, 5, 23); // rows-1 = 23 (grid has 24 rows → rows arg = 23)
-    let a = handle_key_inner(&char_key("j"), false, false, false, &mode, 80, 24, false);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("j"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
     assert!(matches!(a, Action::VisualBoundaryDown(1)));
 }
 
@@ -1692,6 +1893,7 @@ fn visual_j_at_last_row_scrolls_down() {
 fn visual_arrow_up_at_row_zero_scrolls_up() {
     let mode = visual_at(0, 0, 5, 0);
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowUp),
         false,
         false,
@@ -1708,6 +1910,7 @@ fn visual_arrow_up_at_row_zero_scrolls_up() {
 fn visual_arrow_down_at_last_row_scrolls_down() {
     let mode = visual_at(0, 0, 5, 23);
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowDown),
         false,
         false,
@@ -1733,6 +1936,7 @@ fn palette_mode() -> InputMode {
 fn command_palette_mode_swallows_chars() {
     // Keys in CommandPalette mode return None so the handler in main.rs can intercept them.
     let a = handle_key_inner(
+        &km(),
         &char_key("x"),
         false,
         false,
@@ -1821,24 +2025,6 @@ fn visual_down_not_at_bottom_moves_cursor() {
 // ── visual_char_action ───────────────────────────────────────────────────────
 
 #[test]
-fn visual_char_w_returns_word_forward() {
-    let move_to = |_c: usize, _r: usize| Action::None;
-    assert!(matches!(
-        visual_char_action("w", 0, 0, 80, 24, &move_to),
-        Action::VisualWordForward
-    ));
-}
-
-#[test]
-fn visual_char_y_returns_copy() {
-    let move_to = |_c: usize, _r: usize| Action::None;
-    assert!(matches!(
-        visual_char_action("y", 5, 3, 80, 24, &move_to),
-        Action::Copy
-    ));
-}
-
-#[test]
 fn visual_char_h_moves_left() {
     let move_to = |c: usize, r: usize| {
         Action::SetMode(crate::input::InputMode::Visual {
@@ -1883,6 +2069,7 @@ fn screenshot_mode() -> InputMode {
 #[test]
 fn screenshot_arrow_right_moves_right() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowRight),
         false,
         false,
@@ -1898,6 +2085,7 @@ fn screenshot_arrow_right_moves_right() {
 #[test]
 fn screenshot_arrow_left_moves_left() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowLeft),
         false,
         false,
@@ -1913,6 +2101,7 @@ fn screenshot_arrow_left_moves_left() {
 #[test]
 fn screenshot_arrow_down_moves_down() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowDown),
         false,
         false,
@@ -1928,6 +2117,7 @@ fn screenshot_arrow_down_moves_down() {
 #[test]
 fn screenshot_arrow_up_moves_up() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowUp),
         false,
         false,
@@ -1943,6 +2133,7 @@ fn screenshot_arrow_up_moves_up() {
 #[test]
 fn screenshot_shift_up_shrinks_height() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowUp),
         false,
         true,
@@ -1958,6 +2149,7 @@ fn screenshot_shift_up_shrinks_height() {
 #[test]
 fn screenshot_shift_down_grows_height() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowDown),
         false,
         true,
@@ -1973,6 +2165,7 @@ fn screenshot_shift_down_grows_height() {
 #[test]
 fn screenshot_shift_left_shrinks_width() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowLeft),
         false,
         true,
@@ -1988,6 +2181,7 @@ fn screenshot_shift_left_shrinks_width() {
 #[test]
 fn screenshot_shift_right_grows_width() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::ArrowRight),
         false,
         true,
@@ -2003,6 +2197,7 @@ fn screenshot_shift_right_grows_width() {
 #[test]
 fn screenshot_enter_captures() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Enter),
         false,
         false,
@@ -2018,6 +2213,7 @@ fn screenshot_enter_captures() {
 #[test]
 fn screenshot_space_captures() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Space),
         false,
         false,
@@ -2033,6 +2229,7 @@ fn screenshot_space_captures() {
 #[test]
 fn screenshot_esc_exits_to_insert() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Escape),
         false,
         false,
@@ -2048,6 +2245,7 @@ fn screenshot_esc_exits_to_insert() {
 #[test]
 fn screenshot_esc_still_exits_to_insert() {
     let a = handle_key_inner(
+        &km(),
         &named(NamedKey::Escape),
         false,
         false,
@@ -2058,4 +2256,280 @@ fn screenshot_esc_still_exits_to_insert() {
         false,
     );
     assert!(matches!(a, Action::SetMode(InputMode::Insert)));
+}
+
+// ── Modal keymap dispatch (Phase 2) ───────────────────────────────────────────
+
+#[test]
+fn normal_remapped_key_fires_new_action() {
+    // Rebind normal:i to scroll_to_top; pressing 'i' in Normal now scrolls.
+    let (km2, _e) = KeyMap::from_config(&crate::config::KeybindingsConfig(
+        [("normal:i".to_string(), "scroll_to_top".to_string())]
+            .into_iter()
+            .collect(),
+    ));
+    let a = handle_key_inner(
+        &km2,
+        &char_key("i"),
+        false,
+        false,
+        false,
+        &normal(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::ScrollToTop));
+}
+
+#[test]
+fn normal_default_i_still_enters_insert_via_keymap() {
+    let a = handle_key_inner(
+        &km(),
+        &char_key("i"),
+        false,
+        false,
+        false,
+        &normal(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::SetMode(InputMode::Insert)));
+}
+
+#[test]
+fn normal_noned_key_falls_through_to_none() {
+    // Disabling normal:n removes the row; 'n' has no hardcoded Normal fallback → None.
+    let (km2, _e) = KeyMap::from_config(&crate::config::KeybindingsConfig(
+        [("normal:n".to_string(), "none".to_string())]
+            .into_iter()
+            .collect(),
+    ));
+    let a = handle_key_inner(
+        &km2,
+        &char_key("n"),
+        false,
+        false,
+        false,
+        &normal(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::None));
+}
+
+#[test]
+fn normal_escape_stays_hardcoded() {
+    let a = handle_key_inner(
+        &km(),
+        &named(NamedKey::Escape),
+        false,
+        false,
+        false,
+        &normal(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::SetMode(InputMode::Insert)));
+}
+
+#[test]
+fn normal_capital_n_distinct_from_n() {
+    // Case-sensitive modal lookup: n -> search_next, N -> search_prev.
+    let a_n = handle_key_inner(
+        &km(),
+        &char_key("n"),
+        false,
+        false,
+        false,
+        &normal(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a_n, Action::SearchNext));
+    let a_cap = handle_key_inner(
+        &km(),
+        &char_key("N"),
+        false,
+        false,
+        false,
+        &normal(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a_cap, Action::SearchPrev));
+}
+
+#[test]
+fn normal_modifier_held_still_resolves_bare_action() {
+    // Modal lookup is modifier-agnostic (matches today): Ctrl+j in Normal still
+    // resolves the bare 'j' row -> scroll_line_down (ScrollDown(3)).
+    let a = handle_key_inner(
+        &km(),
+        &char_key("j"),
+        true,
+        false,
+        false,
+        &normal(),
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::ScrollDown(3)));
+}
+
+#[test]
+fn visual_remapped_key_fires_new_action() {
+    // Rebind visual:w to copy.
+    let (km2, _e) = KeyMap::from_config(&crate::config::KeybindingsConfig(
+        [("visual:w".to_string(), "copy".to_string())]
+            .into_iter()
+            .collect(),
+    ));
+    let mode = visual_at(0, 0, 5, 5);
+    let a = handle_key_inner(
+        &km2,
+        &char_key("w"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::Copy));
+}
+
+#[test]
+fn visual_default_w_forward() {
+    // 'w' now resolves via the keymap one level up in handle_visual.
+    let mode = visual_at(0, 0, 5, 5);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("w"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::VisualWordForward));
+}
+
+#[test]
+fn visual_default_y_copies_via_keymap() {
+    let mode = visual_at(0, 0, 5, 5);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("y"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::Copy));
+}
+
+#[test]
+fn visual_capital_y_yanks_line_distinct_from_y() {
+    let mode = visual_at(0, 0, 5, 5);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("Y"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::VisualYankLine));
+}
+
+#[test]
+fn visual_movement_h_stays_hardcoded() {
+    // Even though 'w'/'y' are rows, movement 'h' is hardcoded and still moves.
+    let mode = visual_at(0, 0, 5, 5);
+    let (col, row) = vis_col_row(handle_key_inner(
+        &km(),
+        &char_key("h"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    ));
+    assert_eq!(col, 4);
+    assert_eq!(row, 5);
+}
+
+#[test]
+fn visual_movement_j_at_last_row_stays_boundary_scroll() {
+    let mode = visual_at(0, 0, 5, 23);
+    let a = handle_key_inner(
+        &km(),
+        &char_key("j"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::VisualBoundaryDown(1)));
+}
+
+#[test]
+fn visual_escape_stays_hardcoded() {
+    let mode = visual_at(0, 0, 5, 5);
+    let a = handle_key_inner(
+        &km(),
+        &named(NamedKey::Escape),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::SetMode(InputMode::Insert)));
+}
+
+#[test]
+fn visual_noned_word_key_falls_through_to_none() {
+    // Disabling visual:w removes the row; 'w' is not a movement key → None.
+    let (km2, _e) = KeyMap::from_config(&crate::config::KeybindingsConfig(
+        [("visual:w".to_string(), "none".to_string())]
+            .into_iter()
+            .collect(),
+    ));
+    let mode = visual_at(0, 0, 5, 5);
+    let a = handle_key_inner(
+        &km2,
+        &char_key("w"),
+        false,
+        false,
+        false,
+        &mode,
+        80,
+        24,
+        false,
+    );
+    assert!(matches!(a, Action::None));
 }
