@@ -300,6 +300,8 @@ pub fn action_from_name(name: &str, ctx: DispatchCtx) -> Option<Action> {
         // scroll
         "scroll_page_up" => Action::ScrollUp(ctx.grid_rows),
         "scroll_page_down" => Action::ScrollDown(ctx.grid_rows),
+        "scroll_line_up" => Action::ScrollUp(3),
+        "scroll_line_down" => Action::ScrollDown(3),
         "scroll_to_top" => Action::ScrollToTop,
         "scroll_to_bottom" => Action::ScrollToBottom,
         "clear_scrollback" => Action::ClearScrollback,
@@ -322,8 +324,17 @@ pub fn action_from_name(name: &str, ctx: DispatchCtx) -> Option<Action> {
         // modes
         "cycle_mode" => Action::SetMode(cycle_mode_next(ctx.mode)),
         "enter_normal_mode" => Action::SetMode(InputMode::Normal),
+        "enter_insert_mode" => Action::SetMode(InputMode::Insert),
+        "enter_visual_mode" => Action::SetMode(visual_mode_init()),
         // pane chord prefix
         "ctrl_w_prefix" => Action::CtrlWPrefix,
+        // visual-mode discrete actions
+        "visual_word_forward" => Action::VisualWordForward,
+        "visual_word_backward" => Action::VisualWordBackward,
+        "visual_word_end" => Action::VisualWordEnd,
+        "visual_anchor" => Action::VisualAnchor,
+        "visual_swap_anchor" => Action::VisualSwapAnchor,
+        "visual_yank_line" => Action::VisualYankLine,
         _ => return None,
     };
     Some(a)
@@ -528,6 +539,16 @@ fn intern_known_name(name: &str) -> Option<&'static str> {
         "cycle_mode",
         "enter_normal_mode",
         "ctrl_w_prefix",
+        "enter_insert_mode",
+        "enter_visual_mode",
+        "visual_word_forward",
+        "visual_word_backward",
+        "visual_word_end",
+        "visual_anchor",
+        "visual_swap_anchor",
+        "visual_yank_line",
+        "scroll_line_up",
+        "scroll_line_down",
     ];
     NAMES.iter().copied().find(|&n| n == name)
 }

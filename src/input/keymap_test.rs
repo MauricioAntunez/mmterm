@@ -205,6 +205,69 @@ fn registry_enter_normal_mode() {
 }
 
 #[test]
+fn registry_enter_insert_mode() {
+    assert!(matches!(
+        action_from_name("enter_insert_mode", ctx(24, InputMode::Insert)),
+        Some(Action::SetMode(InputMode::Insert))
+    ));
+}
+
+#[test]
+fn registry_enter_visual_mode() {
+    assert!(matches!(
+        action_from_name("enter_visual_mode", ctx(24, InputMode::Normal)),
+        Some(Action::SetMode(InputMode::Visual {
+            anchored: false,
+            ..
+        }))
+    ));
+}
+
+#[test]
+fn registry_visual_word_actions() {
+    assert!(matches!(
+        action_from_name("visual_word_forward", ctx(24, InputMode::Insert)),
+        Some(Action::VisualWordForward)
+    ));
+    assert!(matches!(
+        action_from_name("visual_word_backward", ctx(24, InputMode::Insert)),
+        Some(Action::VisualWordBackward)
+    ));
+    assert!(matches!(
+        action_from_name("visual_word_end", ctx(24, InputMode::Insert)),
+        Some(Action::VisualWordEnd)
+    ));
+}
+
+#[test]
+fn registry_visual_anchor_actions() {
+    assert!(matches!(
+        action_from_name("visual_anchor", ctx(24, InputMode::Insert)),
+        Some(Action::VisualAnchor)
+    ));
+    assert!(matches!(
+        action_from_name("visual_swap_anchor", ctx(24, InputMode::Insert)),
+        Some(Action::VisualSwapAnchor)
+    ));
+    assert!(matches!(
+        action_from_name("visual_yank_line", ctx(24, InputMode::Insert)),
+        Some(Action::VisualYankLine)
+    ));
+}
+
+#[test]
+fn registry_scroll_line_actions_are_fixed_three() {
+    assert!(matches!(
+        action_from_name("scroll_line_up", ctx(40, InputMode::Insert)),
+        Some(Action::ScrollUp(3))
+    ));
+    assert!(matches!(
+        action_from_name("scroll_line_down", ctx(40, InputMode::Insert)),
+        Some(Action::ScrollDown(3))
+    ));
+}
+
+#[test]
 fn registry_unknown_returns_none() {
     assert!(action_from_name("definitely_not_an_action", ctx(24, InputMode::Insert)).is_none());
 }
@@ -277,6 +340,16 @@ fn every_registry_name_is_interned() {
         "cycle_mode",
         "enter_normal_mode",
         "ctrl_w_prefix",
+        "enter_insert_mode",
+        "enter_visual_mode",
+        "visual_word_forward",
+        "visual_word_backward",
+        "visual_word_end",
+        "visual_anchor",
+        "visual_swap_anchor",
+        "visual_yank_line",
+        "scroll_line_up",
+        "scroll_line_down",
     ];
     for n in names {
         assert!(
